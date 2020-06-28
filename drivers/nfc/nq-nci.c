@@ -30,7 +30,7 @@
 #endif
 
 /* Implement a bare minimum nfc check */
-#include <linux/oppo_nfc.h>
+#include <linux/oppo_checks.h>
 bool device_has_nfc(void){
 	return has_nfc;
 }
