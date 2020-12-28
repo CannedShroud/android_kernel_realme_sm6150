@@ -401,6 +401,7 @@ static int __cam_isp_ctx_handle_buf_done_in_activated_state(
 	struct cam_ctx_request  *req;
 	struct cam_isp_ctx_req  *req_isp;
 	struct cam_context *ctx = ctx_isp->base;
+	uint64_t buf_done_req_id;
 
 	if (list_empty(&ctx->active_req_list)) {
 		CAM_DBG(CAM_ISP, "Buf done with no active request!");
@@ -497,6 +498,7 @@ static int __cam_isp_ctx_handle_buf_done_in_activated_state(
 		return rc;
 
 	ctx_isp->active_req_cnt--;
+	buf_done_req_id = req->request_id;
 
 	if (req_isp->bubble_detected && req_isp->bubble_report) {
 		req_isp->num_acked = 0;
@@ -508,7 +510,18 @@ static int __cam_isp_ctx_handle_buf_done_in_activated_state(
 		CAM_DBG(CAM_REQ,
 			"Move active request %lld to pending list(cnt = %d) [bubble recovery], ctx %u",
 			 req->request_id, ctx_isp->active_req_cnt, ctx->ctx_id);
+		__cam_isp_ctx_update_state_monitor_array(ctx_isp,
+			CAM_ISP_HW_EVENT_DONE,
+			ctx_isp->substate_activated,
+			ctx_isp->substate_activated);
+		__cam_isp_ctx_update_event_record(ctx_isp,
+			CAM_ISP_CTX_EVENT_BUFDONE, req);
 	} else {
+		if (ctx_isp->req_info.reported_req_id < buf_done_req_id) {
+			ctx_isp->req_info.reported_req_id = buf_done_req_id;
+			__cam_isp_ctx_send_sof_timestamp(ctx_isp,
+			buf_done_req_id, CAM_REQ_MGR_SOF_EVENT_SUCCESS);
+		}
 		list_del_init(&req->list);
 		list_add_tail(&req->list, &ctx->free_req_list);
 
@@ -670,6 +683,11 @@ static int __cam_isp_ctx_notify_sof_in_activated_state(
 			if (req->request_id > ctx_isp->reported_req_id) {
 				request_id = req->request_id;
 				ctx_isp->reported_req_id = request_id;
+				ctx_isp->req_info.reported_req_id = request_id;
+				ctx_isp->req_info.last_reported_id_time_stamp =
+					jiffies_to_msecs(jiffies);
+				__cam_isp_ctx_update_event_record(ctx_isp,
+					CAM_ISP_CTX_EVENT_EPOCH, req);
 				break;
 			}
 		}
@@ -2199,6 +2217,7 @@ static int __cam_isp_ctx_rdi_only_sof_in_bubble_applied(
 		notify.req_id = req->request_id;
 		notify.error = CRM_KMD_ERR_BUBBLE;
 		ctx->ctx_crm_intf->notify_err(&notify);
+		atomic_set(&ctx_isp->process_bubble, 1);
 		CAM_DBG(CAM_ISP, "Notify CRM about Bubble frame %lld",
 			ctx_isp->frame_id);
 	} else {
@@ -2256,6 +2275,33 @@ static int __cam_isp_ctx_rdi_only_sof_in_bubble_state(
 	ctx_isp->boot_timestamp = sof_event_data->boot_time;
 	CAM_DBG(CAM_ISP, "frame id: %lld time stamp:0x%llx",
 		ctx_isp->frame_id, ctx_isp->sof_timestamp_val);
+
+	if (atomic_read(&ctx_isp->process_bubble)) {
+		if (list_empty(&ctx->active_req_list)) {
+			CAM_ERR(CAM_ISP, "No available active req in bubble");
+			atomic_set(&ctx_isp->process_bubble, 0);
+			return -EINVAL;
+		}
+
+		req = list_first_entry(&ctx->active_req_list,
+			struct cam_ctx_request, list);
+		req_isp = (struct cam_isp_ctx_req *) req->req_priv;
+
+		if (req_isp->bubble_detected) {
+			req_isp->num_acked = 0;
+			req_isp->bubble_detected = false;
+			list_del_init(&req->list);
+			list_add(&req->list, &ctx->pending_req_list);
+			atomic_set(&ctx_isp->process_bubble, 0);
+			ctx_isp->active_req_cnt--;
+			CAM_DBG(CAM_REQ,
+			"Move active req:%lld to pending list(cnt=%d) ctx:%u",
+				req->request_id,
+				ctx_isp->active_req_cnt, ctx->ctx_id);
+			goto end;
+		}
+	}
+
 	/*
 	 * Signal all active requests with error and move the  all the active
 	 * requests to free list
@@ -2276,7 +2322,7 @@ static int __cam_isp_ctx_rdi_only_sof_in_bubble_state(
 		list_add_tail(&req->list, &ctx->free_req_list);
 		ctx_isp->active_req_cnt--;
 	}
-
+end:
 	/* notify reqmgr with sof signal */
 	if (ctx->ctx_crm_intf && ctx->ctx_crm_intf->notify_trigger) {
 		notify.link_hdl = ctx->link_hdl;
@@ -2690,7 +2736,7 @@ static int __cam_isp_ctx_config_dev_in_top_state(
 		CAM_INFO(CAM_ISP,
 			"request %lld has been flushed, reject packet",
 			packet->header.request_id);
-		rc = -EINVAL;
+		rc = -EBADR;
 		goto free_cpu_buf;
 	}
 
