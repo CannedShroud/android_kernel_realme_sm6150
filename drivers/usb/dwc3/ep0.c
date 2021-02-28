@@ -1309,10 +1309,16 @@ static void dwc3_ep0_xfernotready(struct dwc3 *dwc,
 void dwc3_ep0_interrupt(struct dwc3 *dwc,
 		const struct dwc3_event_depevt *event)
 {
+<<<<<<< HEAD
 	struct dwc3_ep	*dep;
 	u8 epnum = event->endpoint_number;
 
 	dep = dwc->eps[epnum];
+=======
+	struct dwc3_ep	*dep = dwc->eps[event->endpoint_number];
+	u8		cmd;
+
+>>>>>>> v4.14.159
 	switch (event->endpoint_event) {
 	case DWC3_DEPEVT_XFERCOMPLETE:
 		dwc3_ep0_xfer_complete(dwc, event);
@@ -1331,10 +1337,12 @@ void dwc3_ep0_interrupt(struct dwc3 *dwc,
 		dep->dbg_ep_events.rxtxfifoevent++;
 		break;
 	case DWC3_DEPEVT_STREAMEVT:
-		dep->dbg_ep_events.streamevent++;
 		break;
 	case DWC3_DEPEVT_EPCMDCMPLT:
-		dep->dbg_ep_events.epcmdcomplete++;
+		cmd = DEPEVT_PARAMETER_CMD(event->parameters);
+
+		if (cmd == DWC3_DEPCMD_ENDTRANSFER)
+			dep->flags &= ~DWC3_EP_TRANSFER_STARTED;
 		break;
 	}
 }
