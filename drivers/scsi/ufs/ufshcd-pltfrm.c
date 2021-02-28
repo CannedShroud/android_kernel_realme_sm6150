@@ -565,8 +565,14 @@ int ufshcd_pltfrm_init(struct platform_device *pdev,
 
 	pm_runtime_set_active(&pdev->dev);
 	pm_runtime_enable(&pdev->dev);
+<<<<<<< HEAD
 
 	return 0;
+=======
+
+	return 0;
+
+>>>>>>> v4.14.130
 dealloc_host:
 	ufshcd_dealloc_host(hba);
 out:
