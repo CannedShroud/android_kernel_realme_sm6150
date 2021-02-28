@@ -2871,7 +2871,12 @@ int f2fs_release_page(struct page *page, gfp_t wait)
 		return 0;
 
 	clear_cold_data(page);
+<<<<<<< HEAD
 	f2fs_clear_page_private(page);
+=======
+	set_page_private(page, 0);
+	ClearPagePrivate(page);
+>>>>>>> v4.14.157
 	return 1;
 }
 
