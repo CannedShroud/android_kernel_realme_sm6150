@@ -23,6 +23,7 @@
 #include <linux/time.h>
 #include <linux/delay.h>
 #include <linux/regulator/consumer.h>
+#include <linux/pm_qos.h>
 
 #ifndef TPD_USE_EINT
 #include <linux/hrtimer.h>
