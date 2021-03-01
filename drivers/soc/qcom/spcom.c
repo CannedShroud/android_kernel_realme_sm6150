@@ -408,7 +408,7 @@ static int spcom_rx(struct spcom_channel *ch,
 			goto exit_err;
 		}
 	} else {
-		pr_debug("pending data size [%zu], requested size [%u], ch->txn_id %d\n",
+		pr_debug("pending data size [%zu], requested size [%zu], ch->txn_id %d\n",
 			 ch->actual_rx_size, size, ch->txn_id);
 	}
 	if (!ch->rpmsg_rx_buf) {
@@ -469,7 +469,7 @@ static int spcom_get_next_request_size(struct spcom_channel *ch)
 	ret = wait_for_completion_interruptible(&ch->rx_done);
 	if (ret < 0) {
 		pr_debug("ch [%s]:interrupted wait ret=%d\n",
-			 ch->name, ret);
+			 ret, ch->name);
 		goto exit_error;
 	}
 
@@ -903,7 +903,7 @@ static int spcom_handle_lock_ion_buf_command(struct spcom_channel *ch,
 	}
 
 	if (cmd->arg > (unsigned int)INT_MAX) {
-		pr_err("int overflow [%u]\n", cmd->arg);
+		pr_err("int overflow [%ld]\n", cmd->arg);
 		return -EINVAL;
 	}
 	fd = cmd->arg;
@@ -934,7 +934,7 @@ static int spcom_handle_lock_ion_buf_command(struct spcom_channel *ch,
 		if (ch->dmabuf_handle_table[i] == NULL) {
 			ch->dmabuf_handle_table[i] = dma_buf;
 			ch->dmabuf_fd_table[i] = fd;
-			pr_debug("ch [%s] locked ion buf #%d fd [%d] dma_buf=%pK\n",
+			pr_debug("ch [%s] locked ion buf #%d fd [%d] dma_buf=0x%x\n",
 				ch->name, i,
 				ch->dmabuf_fd_table[i],
 				ch->dmabuf_handle_table[i]);
@@ -972,7 +972,7 @@ static int spcom_handle_unlock_ion_buf_command(struct spcom_channel *ch,
 		return -EINVAL;
 	}
 	if (cmd->arg > (unsigned int)INT_MAX) {
-		pr_err("int overflow [%u]\n", cmd->arg);
+		pr_err("int overflow [%ld]\n", cmd->arg);
 		return -EINVAL;
 	}
 	fd = cmd->arg;
@@ -1008,7 +1008,7 @@ static int spcom_handle_unlock_ion_buf_command(struct spcom_channel *ch,
 			if (!ch->dmabuf_handle_table[i])
 				continue;
 			if (ch->dmabuf_handle_table[i] == dma_buf) {
-				pr_debug("ch [%s] unlocked ion buf #%d fd [%d] dma_buf=%pK\n",
+				pr_debug("ch [%s] unlocked ion buf #%d fd [%d] dma_buf=0x%x\n",
 					ch->name, i,
 					ch->dmabuf_fd_table[i],
 					ch->dmabuf_handle_table[i]);
@@ -1377,7 +1377,7 @@ static int spcom_device_release(struct inode *inode, struct file *filp)
 	ch->is_busy = false;
 	ch->pid = 0;
 	if (ch->rpmsg_rx_buf) {
-		pr_debug("ch [%s] discarting unconsumed rx packet actual_rx_size=%lu\n",
+		pr_debug("ch [%s] discarting unconsumed rx packet actual_rx_size=%d\n",
 		       name, ch->actual_rx_size);
 		kfree(ch->rpmsg_rx_buf);
 		ch->rpmsg_rx_buf = NULL;
@@ -1684,7 +1684,7 @@ static int spcom_create_channel_chardev(const char *name)
 	ch = spcom_find_channel_by_name(name);
 	if (ch) {
 		pr_err("channel [%s] already exist.\n", name);
-		return -EBUSY;
+		return -EINVAL;
 	}
 
 	ch = spcom_find_channel_by_name(""); /* find reserved channel */
@@ -1744,7 +1744,7 @@ exit_free_cdev:
 exit_unregister_drv:
 	ret = spcom_unregister_rpmsg_drv(ch);
 	if (ret != 0)
-		pr_err("can't unregister rpmsg drv %d\n", ret);
+		pr_err("can't unregister rpmsg drv\n", ret);
 exit_destroy_channel:
 	// empty channel leaves free slot for next time
 	mutex_lock(&ch->lock);
@@ -1893,15 +1893,15 @@ static void spcom_signal_rx_done(struct work_struct *ignored)
 
 		if (ch->rpmsg_abort) {
 			if (ch->rpmsg_rx_buf) {
-				pr_debug("ch [%s] rx aborted free %lu bytes\n",
-					ch->name, ch->actual_rx_size);
+				pr_debug("ch [%s] rx aborted free %d bytes\n",
+					ch->actual_rx_size);
 				kfree(ch->rpmsg_rx_buf);
 				ch->actual_rx_size = 0;
 			}
 			goto rx_aborted;
 		}
 		if (ch->rpmsg_rx_buf) {
-			pr_err("ch [%s] previous buffer not consumed %lu bytes\n",
+			pr_err("ch [%s] previous buffer not consumed %d bytes\n",
 			       ch->name, ch->actual_rx_size);
 			kfree(ch->rpmsg_rx_buf);
 			ch->rpmsg_rx_buf = NULL;
@@ -1945,7 +1945,7 @@ static int spcom_rpdev_cb(struct rpmsg_device *rpdev,
 	pr_debug("incoming msg from %s\n", rpdev->id.name);
 	ch = dev_get_drvdata(&rpdev->dev);
 	if (!ch) {
-		pr_err("%s: invalid ch\n", __func__);
+		pr_err("%s: invalid ch\n");
 		return -EINVAL;
 	}
 	if (len > SPCOM_RX_BUF_SIZE || len <= 0) {

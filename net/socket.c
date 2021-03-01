@@ -612,7 +612,6 @@ static void __sock_release(struct socket *sock, struct inode *inode)
 		if (inode)
 			inode_lock(inode);
 		sock->ops->release(sock);
-		sock->sk = NULL;
 		if (inode)
 			inode_unlock(inode);
 		sock->ops = NULL;
@@ -903,7 +902,7 @@ static ssize_t sock_read_iter(struct kiocb *iocb, struct iov_iter *to)
 			     .msg_iocb = iocb};
 	ssize_t res;
 
-	if (file->f_flags & O_NONBLOCK || (iocb->ki_flags & IOCB_NOWAIT))
+	if (file->f_flags & O_NONBLOCK)
 		msg.msg_flags = MSG_DONTWAIT;
 
 	if (iocb->ki_pos != 0)
@@ -928,7 +927,7 @@ static ssize_t sock_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	if (iocb->ki_pos != 0)
 		return -ESPIPE;
 
-	if (file->f_flags & O_NONBLOCK || (iocb->ki_flags & IOCB_NOWAIT))
+	if (file->f_flags & O_NONBLOCK)
 		msg.msg_flags = MSG_DONTWAIT;
 
 	if (sock->type == SOCK_SEQPACKET)
@@ -1256,6 +1255,13 @@ int __sock_create(struct net *net, int family, int type, int protocol,
 	}
 
 	sock->type = type;
+
+#ifdef OPPO_CTA_FLAG
+    //Wei.Liu@TECH.CTAIFS, 2019/7/27, added for CTA test
+    sock->last_rcv_stat_time = 0;
+    sock->last_send_stat_time = 0;
+#endif
+
 
 #ifdef CONFIG_MODULES
 	/* Attempt to load a protocol module if the find failed.
@@ -2681,6 +2687,15 @@ out_fs:
 
 core_initcall(sock_init);	/* early initcall */
 
+static int __init jit_init(void)
+{
+#ifdef CONFIG_BPF_JIT_ALWAYS_ON
+	bpf_jit_enable = 1;
+#endif
+	return 0;
+}
+pure_initcall(jit_init);
+
 #ifdef CONFIG_PROC_FS
 void socket_seq_show(struct seq_file *seq)
 {
@@ -3292,7 +3307,6 @@ static int compat_sock_ioctl_trans(struct file *file, struct socket *sock,
 	case SIOCSARP:
 	case SIOCGARP:
 	case SIOCDARP:
-	case SIOCOUTQNSD:
 	case SIOCATMARK:
 		return sock_do_ioctl(net, sock, cmd, arg);
 	}

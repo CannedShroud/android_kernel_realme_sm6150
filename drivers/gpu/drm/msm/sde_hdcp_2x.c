@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -563,11 +563,6 @@ static void sde_hdcp_2x_msg_sent(struct sde_hdcp_2x_ctrl *hdcp)
 						HDCP_TRANSPORT_CMD_INVALID };
 	cdata.context = hdcp->client_data;
 
-	if (atomic_read(&hdcp->hdcp_off)) {
-		pr_debug("invalid state, hdcp off\n");
-		return;
-	}
-
 	switch (hdcp->app_data.response.data[0]) {
 	case SKE_SEND_TYPE_ID:
 		sde_hdcp_2x_set_hw_key(hdcp);
@@ -754,10 +749,7 @@ static void sde_hdcp_2x_msg_recvd(struct sde_hdcp_2x_ctrl *hdcp)
 		goto exit;
 	}
 
-	if (hdcp->app_data.response.length == 0)
-		out_msg = INVALID_MESSAGE;
-	else
-		out_msg = (u32)hdcp->app_data.response.data[0];
+	out_msg = (u32)hdcp->app_data.response.data[0];
 
 	pr_debug("message received from TZ: %s\n",
 			sde_hdcp_2x_message_name(out_msg));

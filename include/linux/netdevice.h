@@ -56,7 +56,6 @@ struct netpoll_info;
 struct device;
 struct phy_device;
 struct dsa_switch_tree;
-struct macsec_context;
 
 /* 802.11 specific */
 struct wireless_dev;
@@ -827,35 +826,6 @@ struct xfrmdev_ops {
 };
 #endif
 
-#if IS_ENABLED(CONFIG_MACSEC)
-struct macsec_ops {
-	/* Device wide */
-	int (*mdo_dev_open)(struct macsec_context *ctx);
-	int (*mdo_dev_stop)(struct macsec_context *ctx);
-	/* SecY */
-	int (*mdo_add_secy)(struct macsec_context *ctx);
-	int (*mdo_upd_secy)(struct macsec_context *ctx);
-	int (*mdo_del_secy)(struct macsec_context *ctx);
-	/* Security channels */
-	int (*mdo_add_rxsc)(struct macsec_context *ctx);
-	int (*mdo_upd_rxsc)(struct macsec_context *ctx);
-	int (*mdo_del_rxsc)(struct macsec_context *ctx);
-	/* Security associations */
-	int (*mdo_add_rxsa)(struct macsec_context *ctx);
-	int (*mdo_upd_rxsa)(struct macsec_context *ctx);
-	int (*mdo_del_rxsa)(struct macsec_context *ctx);
-	int (*mdo_add_txsa)(struct macsec_context *ctx);
-	int (*mdo_upd_txsa)(struct macsec_context *ctx);
-	int (*mdo_del_txsa)(struct macsec_context *ctx);
-	/* Statistics */
-	int (*mdo_get_dev_stats)(struct macsec_context *ctx);
-	int (*mdo_get_tx_sc_stats)(struct macsec_context *ctx);
-	int (*mdo_get_tx_sa_stats)(struct macsec_context *ctx);
-	int (*mdo_get_rx_sc_stats)(struct macsec_context *ctx);
-	int (*mdo_get_rx_sa_stats)(struct macsec_context *ctx);
-};
-#endif
-
 /*
  * This structure defines the management hooks for network devices.
  * The following hooks can be defined; unless noted otherwise, they are
@@ -1386,7 +1356,6 @@ struct net_device_ops {
  * @IFF_PHONY_HEADROOM: the headroom value is controlled by an external
  *	entity (i.e. the master device for bridged veth)
  * @IFF_MACSEC: device is a MACsec device
- * @IFF_L3MDEV_RX_HANDLER: only invoke the rx handler of L3 master device
  */
 enum netdev_priv_flags {
 	IFF_802_1Q_VLAN			= 1<<0,
@@ -1417,7 +1386,6 @@ enum netdev_priv_flags {
 	IFF_RXFH_CONFIGURED		= 1<<25,
 	IFF_PHONY_HEADROOM		= 1<<26,
 	IFF_MACSEC			= 1<<27,
-	IFF_L3MDEV_RX_HANDLER		= 1<<28,
 };
 
 #define IFF_802_1Q_VLAN			IFF_802_1Q_VLAN
@@ -1447,7 +1415,6 @@ enum netdev_priv_flags {
 #define IFF_TEAM			IFF_TEAM
 #define IFF_RXFH_CONFIGURED		IFF_RXFH_CONFIGURED
 #define IFF_MACSEC			IFF_MACSEC
-#define IFF_L3MDEV_RX_HANDLER		IFF_L3MDEV_RX_HANDLER
 
 /**
  *	struct net_device - The DEVICE structure.
@@ -1658,8 +1625,6 @@ enum netdev_priv_flags {
  *			switch driver and used to set the phys state of the
  *			switch port.
  *
- *	@macsec_ops:    MACsec offloading ops
- *
  *	FIXME: cleanup struct net_device such that network protocol info
  *	moves out.
  */
@@ -1750,11 +1715,6 @@ struct net_device {
 	unsigned char		if_port;
 	unsigned char		dma;
 
-	/* Note : dev->mtu is often read without holding a lock.
-	 * Writers usually hold RTNL.
-	 * It is recommended to use READ_ONCE() to annotate the reads,
-	 * and to use WRITE_ONCE() to annotate the writes.
-	 */
 	unsigned int		mtu;
 	unsigned int		min_mtu;
 	unsigned int		max_mtu;
@@ -1938,11 +1898,6 @@ struct net_device {
 	struct lock_class_key	*qdisc_tx_busylock;
 	struct lock_class_key	*qdisc_running_key;
 	bool			proto_down;
-
-#if IS_ENABLED(CONFIG_MACSEC)
-	/* MACsec management functions */
-	const struct macsec_ops *macsec_ops;
-#endif
 };
 #define to_net_dev(d) container_of(d, struct net_device, dev)
 
@@ -2483,7 +2438,7 @@ void synchronize_net(void);
 int init_dummy_netdev(struct net_device *dev);
 
 DECLARE_PER_CPU(int, xmit_recursion);
-#define XMIT_RECURSION_LIMIT	8
+#define XMIT_RECURSION_LIMIT	10
 
 static inline int dev_recursion_level(void)
 {
@@ -3351,7 +3306,6 @@ int dev_set_alias(struct net_device *, const char *, size_t);
 int dev_change_net_namespace(struct net_device *, struct net *, const char *);
 int __dev_set_mtu(struct net_device *, int);
 int dev_set_mtu(struct net_device *, int);
-int dev_validate_mtu(struct net_device *dev, int mtu);
 void dev_set_group(struct net_device *, int);
 int dev_set_mac_address(struct net_device *, struct sockaddr *);
 int dev_change_carrier(struct net_device *, bool new_carrier);
@@ -3566,7 +3520,7 @@ static inline u32 netif_msg_init(int debug_value, int default_msg_enable_bits)
 	if (debug_value == 0)	/* no output */
 		return 0;
 	/* set low N bits */
-	return (1U << debug_value) - 1;
+	return (1 << debug_value) - 1;
 }
 
 static inline void __netif_tx_lock(struct netdev_queue *txq, int cpu)
@@ -4252,11 +4206,6 @@ static inline bool netif_is_bond_slave(const struct net_device *dev)
 static inline bool netif_supports_nofcs(struct net_device *dev)
 {
 	return dev->priv_flags & IFF_SUPP_NOFCS;
-}
-
-static inline bool netif_has_l3_rx_handler(const struct net_device *dev)
-{
-	return dev->priv_flags & IFF_L3MDEV_RX_HANDLER;
 }
 
 static inline bool netif_is_l3_master(const struct net_device *dev)

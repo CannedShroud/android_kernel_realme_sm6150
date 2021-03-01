@@ -158,6 +158,18 @@ trace:
 	return skb;
 }
 
+#ifdef VENDOR_EDIT
+//Junyuan.Huang@PSW.CN.WiFi.Network.1471780, 2018/06/26,
+//Add for limit speed function
+struct sk_buff *qdisc_dequeue_skb(struct Qdisc *q, bool *validate)
+{
+	int packets;
+
+	return dequeue_skb(q, validate, &packets);
+}
+EXPORT_SYMBOL(qdisc_dequeue_skb);
+#endif /* VENDOR_EDIT */
+
 /*
  * Transmit possibly several skbs, and handle the return status as
  * required. Owning running seqcount bit guarantees that
@@ -341,7 +353,6 @@ void __netdev_watchdog_up(struct net_device *dev)
 			dev_hold(dev);
 	}
 }
-EXPORT_SYMBOL_GPL(__netdev_watchdog_up);
 
 static void dev_watchdog_up(struct net_device *dev)
 {
@@ -704,11 +715,7 @@ static void qdisc_rcu_free(struct rcu_head *head)
 
 void qdisc_destroy(struct Qdisc *qdisc)
 {
-	const struct Qdisc_ops *ops;
-
-	if (!qdisc)
-		return;
-	ops = qdisc->ops;
+	const struct Qdisc_ops  *ops = qdisc->ops;
 
 	if (qdisc->flags & TCQ_F_BUILTIN ||
 	    !refcount_dec_and_test(&qdisc->refcnt))

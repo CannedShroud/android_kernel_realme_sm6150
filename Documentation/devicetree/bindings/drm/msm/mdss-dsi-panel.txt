@@ -79,10 +79,6 @@ then 3 options can be tried.
 
 Optional properties:
 - qcom,mdss-dsi-panel-name:		A string used as a descriptive name of the panel
-- qcom,mdss-dsi-physical-type:		A string used as a decriptive type of the panel.
-					"oled" : That indicate it's an OLED panel.
-					"lcd" : That indicate it's an LCD panel.
-					If it is not set, consider it is a LCD panel as default.
 - qcom,mdss-dsi-panel-phy-timings:	An array of length 'n' char that specifies the DSI PHY lane
 					timing settings for the panel. This is specific to SDE DRM driver.
 					The value of 'n' depends on the DSI PHY h/w revision and parsing this
@@ -185,7 +181,12 @@ Optional properties:
                                           "bl_ctrl_dcs" = Backlight controlled by DCS commands.
                                           "bl_ctrl_external" = Backlight controlled by externally
                                           other: Unknown backlight control. (default)
-- qcom,bl-pmic-pwm-period-usecs:	PWM period in microseconds.
+- qcom,mdss-dsi-bl-pwm-pmi:		Boolean to indicate that PWM control is through second pmic chip.
+- qcom,mdss-dsi-bl-pmic-bank-select:	LPG channel for backlight.
+					Required if backlight pmic control type is PWM
+- qcom,mdss-dsi-bl-pmic-pwm-frequency:	PWM period in microseconds.
+					Required if backlight pmic control type is PWM
+- qcom,mdss-dsi-pwm-gpio:		PMIC gpio binding to backlight.
 					Required if backlight pmic control type is PWM
 - qcom,mdss-dsi-bl-min-level:		Specifies the min backlight level supported by the panel.
 					0 = default value.
@@ -193,8 +194,6 @@ Optional properties:
 					255 = default value.
 - qcom,mdss-brightness-max-level:	Specifies the max brightness level supported.
 					255 = default value.
-- qcom,mdss-dsi-bl-default-level:	Specifies the default brightness level supported.
-					"brightness_max_level" = default value.
 - qcom,bl-update-flag:			A string that specifies controls for backlight update of the panel.
 					"delay_until_first_frame" = Delay backlight update of the panel
 					until the first frame is received from the HW.
@@ -253,7 +252,6 @@ Optional properties:
 - qcom,mdss-dsi-color-order:		Specifies the R, G and B channel ordering.
 					"rgb_swap_rgb" = DSI_RGB_SWAP_RGB (default value)
 					"rgb_swap_rbg" = DSI_RGB_SWAP_RBG
-					"rgb_swap_bgr" = DSI_RGB_SWAP_BGR
 					"rgb_swap_brg" = DSI_RGB_SWAP_BRG
 					"rgb_swap_grb" = DSI_RGB_SWAP_GRB
 					"rgb_swap_gbr" = DSI_RGB_SWAP_GBR
@@ -265,8 +263,6 @@ Optional properties:
 					0x00 = default value.
 - qcom,mdss-dsi-t-clk-pre:		Specifies the byte clock cycles before mode switch.
 					0x00 = default value.
-- qcom,mdss-dsi-t-clk-pre-extend:	Boolean that specifies whether to enable t_clk_pre counter
-					increment by 2 byteclk.
 - qcom,mdss-dsi-stream:			Specifies the packet stream to be used.
 					0 = stream 0 (default)
 					1 = stream 1
@@ -500,7 +496,6 @@ Optional properties:
 - qcom,panel-ack-disabled: A boolean property to indicate, whether we need to wait for any ACK from the panel
 			   for any commands that we send.
 - qcom,mdss-dsi-force-clock-lane-hs:	Boolean to force dsi clock lanes to HS mode always.
-- qcom,panel-cphy-mode:			Boolean to specify whether panel is using cphy.
 
 - qcom,compression-mode:		Select compression mode for panel.
 					"fbc" - frame buffer compression
@@ -546,17 +541,13 @@ Optional properties:
 					to identify the default topology for the
 					display. The first set is indexed by the
 					value 0.
-- qcom,mdss-dsi-ext-bridge:		Array of u32 values which specifies the external bridge chip reg number, it
-					should match the port config.
+- qcom,mdss-dsi-ext-bridge-mode:	External bridge chip is connected instead of panel.
 - qcom,mdss-dsi-dma-schedule-line:	An integer value indicates the line number after vertical active
 					region, at which command DMA needs to be triggered.
 - qcom,dsi-dyn-clk-enable:		Boolean to indicate dsi dynamic clock switch feature
 					is supported.
 - qcom,dsi-dyn-clk-list:		An u32 array which lists all the supported dsi bit clock
 					frequencies in Hz for the given panel.
-- qcom,dsi-dyn-clk-skip-timing-update:	Boolean to specify whether to skip phy timing parameter
-					update during dynamic clock switch.
-- qcom,csi-proxy-enable:		Boolean to config DSI transmission packet DataTypes to simulate the CSI-2 compatible signal
 
 Required properties for sub-nodes:	None
 Optional properties:
@@ -662,7 +653,6 @@ Example:
 		qcom,lanes-per-sublink = <2>;
 		qcom,mdss-dsi-t-clk-post = <0x20>;
 		qcom,mdss-dsi-t-clk-pre = <0x2c>;
-		qcom,mdss-dsi-t-clk-pre-extend;
 		qcom,mdss-dsi-stream = <0>;
 		qcom,mdss-dsi-mdp-trigger = <0>;
 		qcom,mdss-dsi-dma-trigger = <0>;
@@ -683,7 +673,9 @@ Example:
 		qcom,mdss-dsi-pan-enable-dynamic-fps;
 		qcom,mdss-dsi-pan-fps-update = "dfps_suspend_resume_mode";
 		qcom,dsi-supported-dfps-list = <48 55 60>;
-		qcom,bl-pmic-pwm-period-usecs = <0>;
+		qcom,mdss-dsi-bl-pmic-bank-select = <0>;
+		qcom,mdss-dsi-bl-pmic-pwm-frequency = <0>;
+		qcom,mdss-dsi-pwm-gpio = <&pm8941_mpps 5 0>;
 		qcom,5v-boost-gpio = <&pm8994_gpios 14 0>;
 		qcom,mdss-pan-physical-width-dimension = <60>;
 		qcom,mdss-pan-physical-height-dimension = <140>;

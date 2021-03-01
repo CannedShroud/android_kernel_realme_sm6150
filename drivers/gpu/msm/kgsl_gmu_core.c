@@ -1,4 +1,4 @@
-/* Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -108,7 +108,7 @@ bool gmu_core_isenabled(struct kgsl_device *device)
 
 bool gmu_core_gpmu_isenabled(struct kgsl_device *device)
 {
-	return test_bit(GMU_GPMU, &device->gmu_core.flags) && !nogmu;
+	return test_bit(GMU_GPMU, &device->gmu_core.flags);
 }
 
 bool gmu_core_scales_bandwidth(struct kgsl_device *device)
@@ -243,22 +243,6 @@ void gmu_core_regwrite(struct kgsl_device *device, unsigned int offsetwords,
 	__raw_writel(value, reg);
 }
 
-void gmu_core_blkwrite(struct kgsl_device *device, unsigned int offsetwords,
-		const void *buffer, size_t size)
-{
-	void __iomem *base;
-
-	if (!gmu_core_is_register_offset(device, offsetwords)) {
-		WARN(1, "Out of bounds register write: 0x%x\n", offsetwords);
-		return;
-	}
-
-	offsetwords -= device->gmu_core.gmu2gpu_offset;
-	base = device->gmu_core.reg_virt + (offsetwords << 2);
-
-	memcpy_toio(base, buffer, size);
-}
-
 void gmu_core_regrmw(struct kgsl_device *device,
 		unsigned int offsetwords,
 		unsigned int mask, unsigned int bits)
@@ -273,34 +257,4 @@ void gmu_core_regrmw(struct kgsl_device *device,
 	gmu_core_regread(device, offsetwords, &val);
 	val &= ~mask;
 	gmu_core_regwrite(device, offsetwords, val | bits);
-}
-
-bool gmu_core_dev_cx_is_on(struct kgsl_device *device)
-{
-	struct gmu_dev_ops *ops = GMU_DEVICE_OPS(device);
-
-	if (ops && ops->cx_is_on)
-		return ops->cx_is_on(device);
-
-	return true;
-}
-
-bool gmu_core_is_initialized(struct kgsl_device *device)
-{
-	struct gmu_core_ops *gmu_core_ops = GMU_CORE_OPS(device);
-
-	if (gmu_core_ops && gmu_core_ops->is_initialized)
-		return gmu_core_ops->is_initialized(device);
-
-	return false;
-}
-
-u64 gmu_core_dev_read_ao_counter(struct kgsl_device *device)
-{
-	struct gmu_dev_ops *ops = GMU_DEVICE_OPS(device);
-
-	if (ops && ops->read_ao_counter)
-		return ops->read_ao_counter(device);
-
-	return 0;
 }

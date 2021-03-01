@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1396,22 +1396,6 @@ int adreno_dispatcher_queue_cmds(struct kgsl_device_private *dev_priv,
 
 	user_ts = *timestamp;
 
-	/*
-	 * If there is only one drawobj in the array and it is of
-	 * type SYNCOBJ_TYPE, skip comparing user_ts as it can be 0
-	 */
-	if (!(count == 1 && drawobj[0]->type == SYNCOBJ_TYPE) &&
-		(drawctxt->base.flags & KGSL_CONTEXT_USER_GENERATED_TS)) {
-		/*
-		 * User specified timestamps need to be greater than the last
-		 * issued timestamp in the context
-		 */
-		if (timestamp_cmp(drawctxt->timestamp, user_ts) >= 0) {
-			spin_unlock(&drawctxt->lock);
-			return -ERANGE;
-		}
-	}
-
 	for (i = 0; i < count; i++) {
 
 		switch (drawobj[i]->type) {
@@ -1686,38 +1670,26 @@ static inline const char *_kgsl_context_comm(struct kgsl_context *context)
 #define pr_fault(_d, _c, fmt, args...) \
 		dev_err((_d)->dev, "%s[%d]: " fmt, \
 		_kgsl_context_comm((_c)->context), \
-		pid_nr((_c)->context->proc_priv->pid), ##args)
+		(_c)->context->proc_priv->pid, ##args)
 
 
 static void adreno_fault_header(struct kgsl_device *device,
 		struct adreno_ringbuffer *rb, struct kgsl_drawobj_cmd *cmdobj,
-		int fault)
+		int fault, bool gx_on)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	struct kgsl_drawobj *drawobj = DRAWOBJ(cmdobj);
-	struct adreno_context *drawctxt =
-			drawobj ? ADRENO_CONTEXT(drawobj->context) : NULL;
-	struct gmu_dev_ops *gmu_dev_ops = GMU_DEVICE_OPS(device);
 	unsigned int status, rptr, wptr, ib1sz, ib2sz;
 	uint64_t ib1base, ib2base;
-	bool gx_on = true;
-	int id = (rb != NULL) ? rb->id : -1;
-	const char *type = fault & ADRENO_GMU_FAULT ? "gmu" : "gpu";
 
-	if (GMU_DEV_OP_VALID(gmu_dev_ops, gx_is_on))
-		gx_on = gmu_dev_ops->gx_is_on(adreno_dev);
-
+	/*
+	 * GPU registers can't be accessed if the gx headswitch is off.
+	 * During the gx off case access to GPU gx blocks will show data
+	 * as 0x5c00bd00. Hence skip adreno fault header dump.
+	 */
 	if (!gx_on) {
-		if (drawobj != NULL)
-			pr_fault(device, drawobj,
-				"%s fault ctx %d ctx_type %s ts %d and GX is OFF\n",
-				type, drawobj->context->id,
-				get_api_type_str(drawctxt->type),
-				drawobj->timestamp);
-		else
-			dev_err(device->dev, "RB[%d] : %s fault and GX is OFF\n",
-				id, type);
-
+		dev_err(device->dev, "%s fault and gx is off\n",
+				fault & ADRENO_GMU_FAULT ? "GMU" : "GPU");
 		return;
 	}
 
@@ -1732,8 +1704,8 @@ static void adreno_fault_header(struct kgsl_device *device,
 	adreno_readreg(adreno_dev, ADRENO_REG_CP_IB2_BUFSZ, &ib2sz);
 
 	if (drawobj != NULL) {
-		drawctxt->base.total_fault_count++;
-		drawctxt->base.last_faulted_cmd_ts = drawobj->timestamp;
+		struct adreno_context *drawctxt =
+			ADRENO_CONTEXT(drawobj->context);
 
 		trace_adreno_gpu_fault(drawobj->context->id,
 			drawobj->timestamp,
@@ -1741,27 +1713,26 @@ static void adreno_fault_header(struct kgsl_device *device,
 			ib2base, ib2sz, drawctxt->rb->id);
 
 		pr_fault(device, drawobj,
-			"%s fault ctx %d ctx_type %s ts %d status %8.8X rb %4.4x/%4.4x ib1 %16.16llX/%4.4x ib2 %16.16llX/%4.4x\n",
-			type, drawobj->context->id,
-			get_api_type_str(drawctxt->type),
+			"gpu fault ctx %d ctx_type %s ts %d status %8.8X rb %4.4x/%4.4x ib1 %16.16llX/%4.4x ib2 %16.16llX/%4.4x\n",
+			drawobj->context->id, get_api_type_str(drawctxt->type),
 			drawobj->timestamp, status,
 			rptr, wptr, ib1base, ib1sz, ib2base, ib2sz);
 
 		if (rb != NULL)
 			pr_fault(device, drawobj,
-				"%s fault rb %d rb sw r/w %4.4x/%4.4x\n",
-				type, rb->id, rptr, rb->wptr);
+				"gpu fault rb %d rb sw r/w %4.4x/%4.4x\n",
+				rb->id, rptr, rb->wptr);
 	} else {
 		int id = (rb != NULL) ? rb->id : -1;
 
 		dev_err(device->dev,
-			"RB[%d]: %s fault status %8.8X rb %4.4x/%4.4x ib1 %16.16llX/%4.4x ib2 %16.16llX/%4.4x\n",
-			id, type, status, rptr, wptr, ib1base, ib1sz, ib2base,
+			"RB[%d]: gpu fault status %8.8X rb %4.4x/%4.4x ib1 %16.16llX/%4.4x ib2 %16.16llX/%4.4x\n",
+			id, status, rptr, wptr, ib1base, ib1sz, ib2base,
 			ib2sz);
 		if (rb != NULL)
 			dev_err(device->dev,
-				"RB[%d] %s fault rb sw r/w %4.4x/%4.4x\n",
-				rb->id, type, rptr, rb->wptr);
+				"RB[%d] gpu fault rb sw r/w %4.4x/%4.4x\n",
+				rb->id, rptr, rb->wptr);
 	}
 }
 
@@ -2077,13 +2048,15 @@ replay:
 }
 
 static void do_header_and_snapshot(struct kgsl_device *device, int fault,
-		struct adreno_ringbuffer *rb, struct kgsl_drawobj_cmd *cmdobj)
+		struct adreno_ringbuffer *rb, struct kgsl_drawobj_cmd *cmdobj,
+		bool gx_on)
 {
+
 	struct kgsl_drawobj *drawobj = DRAWOBJ(cmdobj);
 
 	/* Always dump the snapshot on a non-drawobj failure */
 	if (cmdobj == NULL) {
-		adreno_fault_header(device, rb, NULL, fault);
+		adreno_fault_header(device, rb, NULL, fault, gx_on);
 		kgsl_device_snapshot(device, NULL, fault & ADRENO_GMU_FAULT);
 		return;
 	}
@@ -2093,8 +2066,7 @@ static void do_header_and_snapshot(struct kgsl_device *device, int fault,
 		return;
 
 	/* Print the fault header */
-	adreno_fault_header(device, rb, cmdobj, fault);
-
+	adreno_fault_header(device, rb, cmdobj, fault, gx_on);
 	if (!(drawobj->context->flags & KGSL_CONTEXT_NO_SNAPSHOT))
 		kgsl_device_snapshot(device, drawobj->context,
 					fault & ADRENO_GMU_FAULT);
@@ -2138,7 +2110,7 @@ static int dispatcher_do_fault(struct adreno_device *adreno_dev)
 	}
 
 	/* Mask all GMU interrupts */
-	if (gmu_core_gpmu_isenabled(device)) {
+	if (gmu_core_isenabled(device)) {
 		adreno_write_gmureg(adreno_dev,
 			ADRENO_REG_GMU_AO_HOST_INTERRUPT_MASK,
 			0xFFFFFFFF);
@@ -2221,7 +2193,7 @@ static int dispatcher_do_fault(struct adreno_device *adreno_dev)
 		adreno_readreg64(adreno_dev, ADRENO_REG_CP_IB1_BASE,
 			ADRENO_REG_CP_IB1_BASE_HI, &base);
 
-	do_header_and_snapshot(device, fault, hung_rb, cmdobj);
+	do_header_and_snapshot(device, fault, hung_rb, cmdobj, gx_on);
 
 	/* Turn off the KEEPALIVE vote from the ISR for hard fault */
 	if (gpudev->gpu_keepalive && fault & ADRENO_HARD_FAULT)

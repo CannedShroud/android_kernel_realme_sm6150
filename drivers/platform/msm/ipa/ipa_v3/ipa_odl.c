@@ -1,4 +1,4 @@
-/* Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -319,47 +319,10 @@ int ipa_setup_odl_pipe(void)
 	ipa_odl_ep_cfg->desc_fifo_sz = IPA_ODL_RX_RING_SIZE *
 						IPA_FIFO_ELEMENT_SIZE;
 	ipa3_odl_ctx->odl_client_hdl = -1;
-
-	/* For MHIP, ODL functionality is DMA. So bypass aggregation, checksum
-	 * offload, hdr_len.
-	 */
-	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_APQ &&
-		ipa3_is_mhip_offload_enabled()) {
-		IPADBG("MHIP enabled: bypass aggr + csum offload for ODL");
-		ipa_odl_ep_cfg->ipa_ep_cfg.aggr.aggr_en = IPA_BYPASS_AGGR;
-		ipa_odl_ep_cfg->ipa_ep_cfg.cfg.cs_offload_en =
-			IPA_DISABLE_CS_OFFLOAD;
-		ipa_odl_ep_cfg->ipa_ep_cfg.hdr.hdr_len = 0;
-	}
-
 	ret = ipa3_setup_sys_pipe(ipa_odl_ep_cfg,
 			&ipa3_odl_ctx->odl_client_hdl);
 	return ret;
 
-}
-
-/**
- * ipa3_odl_register_pm - Register odl client for PM
- *
- * This function will register 1 client with IPA PM to represent odl
- * in clock scaling calculation:
- *	- "ODL" - this client will be activated when pipe connected
- */
-static int ipa3_odl_register_pm(void)
-{
-	int result = 0;
-	struct ipa_pm_register_params pm_reg;
-
-	memset(&pm_reg, 0, sizeof(pm_reg));
-	pm_reg.name = "ODL";
-	pm_reg.group = IPA_PM_GROUP_DEFAULT;
-	pm_reg.skip_clk_vote = true;
-	result = ipa_pm_register(&pm_reg, &ipa3_odl_ctx->odl_pm_hdl);
-	if (result) {
-		IPAERR("failed to create IPA PM client %d\n", result);
-		return result;
-	}
-	return result;
 }
 
 int ipa3_odl_pipe_open(void)
@@ -395,27 +358,11 @@ int ipa3_odl_pipe_open(void)
 	 * Send signal to ipa_odl_ctl_fops_read,
 	 * to send ODL ep open notification
 	 */
-	if (ipa3_is_mhip_offload_enabled()) {
-		IPADBG("MHIP is enabled, continue\n");
-		ipa3_odl_ctx->odl_state.odl_open = true;
-		ipa3_odl_ctx->odl_state.odl_setup_done_sent = true;
-		ipa3_odl_ctx->odl_state.odl_ep_info_sent = true;
-		ipa3_odl_ctx->odl_state.odl_connected = true;
+	ipa3_odl_ctx->odl_ctl_msg_wq_flag = true;
+	IPADBG("Wake up odl ctl\n");
+	wake_up_interruptible(&odl_ctl_msg_wq);
+	if (ipa3_odl_ctx->odl_state.odl_disconnected)
 		ipa3_odl_ctx->odl_state.odl_disconnected = false;
-
-		/* Enable ADPL over ODL for MPM */
-		ret = ipa3_mpm_enable_adpl_over_odl(true);
-		if (ret) {
-			IPAERR("mpm failed to enable ADPL over ODL %d\n", ret);
-			return ret;
-		}
-	} else {
-		ipa3_odl_ctx->odl_ctl_msg_wq_flag = true;
-		IPAERR("Wake up odl ctl\n");
-		wake_up_interruptible(&odl_ctl_msg_wq);
-		if (ipa3_odl_ctx->odl_state.odl_disconnected)
-			ipa3_odl_ctx->odl_state.odl_disconnected = false;
-	}
 fail:
 	return ret;
 
@@ -425,13 +372,8 @@ static int ipa_adpl_open(struct inode *inode, struct file *filp)
 	int ret = 0;
 
 	IPADBG("Called the function :\n");
-	mutex_lock(&ipa3_odl_ctx->pipe_lock);
 	if (ipa3_odl_ctx->odl_state.odl_init &&
 				!ipa3_odl_ctx->odl_state.adpl_open) {
-		/* Activate ipa_pm*/
-		ret = ipa_pm_activate_sync(ipa3_odl_ctx->odl_pm_hdl);
-		if (ret)
-			IPAERR("failed to activate pm\n");
 		ipa3_odl_ctx->odl_state.adpl_open = true;
 		ret = ipa3_odl_pipe_open();
 	} else {
@@ -439,31 +381,14 @@ static int ipa_adpl_open(struct inode *inode, struct file *filp)
 		print_ipa_odl_state_bit_mask();
 		ret = -ENODEV;
 	}
-	mutex_unlock(&ipa3_odl_ctx->pipe_lock);
 
 	return ret;
 }
 
 static int ipa_adpl_release(struct inode *inode, struct file *filp)
 {
-	int ret = 0;
-	/* Deactivate ipa_pm */
-	mutex_lock(&ipa3_odl_ctx->pipe_lock);
-	ret = ipa_pm_deactivate_sync(ipa3_odl_ctx->odl_pm_hdl);
-	if (ret)
-		IPAERR("failed to activate pm\n");
 	ipa3_odl_pipe_cleanup(false);
-
-	/* Disable ADPL over ODL for MPM */
-	if (ipa3_is_mhip_offload_enabled()) {
-		ret = ipa3_mpm_enable_adpl_over_odl(false);
-		if (ret)
-			IPAERR("mpm failed to disable ADPL over ODL\n");
-
-	}
-	mutex_unlock(&ipa3_odl_ctx->pipe_lock);
-
-	return ret;
+	return 0;
 }
 
 void ipa3_odl_pipe_cleanup(bool is_ssr)
@@ -627,9 +552,7 @@ static long ipa_adpl_ioctl(struct file *filp,
 	switch (cmd) {
 	case IPA_IOC_ODL_GET_AGG_BYTE_LIMIT:
 		odl_pipe_info.agg_byte_limit =
-		/*Modem expecting value in bytes. so passing 15 = 15*1024*/
-		(ipa3_odl_ctx->odl_sys_param.ipa_ep_cfg.aggr.aggr_byte_limit *
-			1024);
+		ipa3_odl_ctx->odl_sys_param.ipa_ep_cfg.aggr.aggr_byte_limit;
 		if (copy_to_user((void __user *)arg, &odl_pipe_info,
 					sizeof(odl_pipe_info))) {
 			retval = -EFAULT;
@@ -680,7 +603,6 @@ int ipa_odl_init(void)
 	odl_cdev = ipa3_odl_ctx->odl_cdev;
 	INIT_LIST_HEAD(&ipa3_odl_ctx->adpl_msg_list);
 	mutex_init(&ipa3_odl_ctx->adpl_msg_lock);
-	mutex_init(&ipa3_odl_ctx->pipe_lock);
 
 	odl_cdev[loop].class = class_create(THIS_MODULE, "ipa_adpl");
 
@@ -753,14 +675,6 @@ int ipa_odl_init(void)
 	}
 
 	ipa3_odl_ctx->odl_state.odl_init = true;
-
-	/* register ipa_pm */
-	result = ipa3_odl_register_pm();
-	if (result) {
-		IPAWANERR("ipa3_odl_register_pm failed, ret: %d\n",
-				result);
-		goto cdev1_add_fail;
-	}
 	return 0;
 cdev1_add_fail:
 	device_destroy(odl_cdev[1].class, odl_cdev[1].dev_num);
@@ -779,9 +693,4 @@ create_char_dev0_fail:
 	kfree(ipa3_odl_ctx);
 fail_mem_ctx:
 	return result;
-}
-
-bool ipa3_is_odl_connected(void)
-{
-	return ipa3_odl_ctx->odl_state.odl_connected;
 }

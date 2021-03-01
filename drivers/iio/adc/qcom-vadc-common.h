@@ -24,8 +24,6 @@
 #define VADC_DEF_CALIB_TYPE			VADC_CALIB_ABSOLUTE
 #define VADC_DEF_VBAT_PRESCALING		1 /* 1:3 */
 
-#define VADC_DEF_LUT_INDEX			0 /* Default or no LUT used */
-
 #define VADC_DECIMATION_MIN			512
 #define VADC_DECIMATION_MAX			4096
 #define ADC5_DECIMATION_SHORT			250
@@ -44,8 +42,6 @@
 #define PMIC5_CHG_TEMP_SCALE_FACTOR		377500
 #define PMIC5_SMB_TEMP_CONSTANT			419400
 #define PMIC5_SMB_TEMP_SCALE_FACTOR		356
-#define PMIC5_SMB1398_TEMP_SCALE_FACTOR		340
-#define PMIC5_SMB1398_TEMP_CONSTANT		268235
 
 #define PMI_CHG_SCALE_1				-138890
 #define PMI_CHG_SCALE_2				391750000000LL
@@ -149,8 +145,6 @@ enum vadc_scale_fn_type {
 	SCALE_HW_CALIB_BATT_THERM_100K,
 	SCALE_HW_CALIB_BATT_THERM_30K,
 	SCALE_HW_CALIB_BATT_THERM_400K,
-	SCALE_HW_CALIB_PM5_SMB1398_TEMP,
-	SCALE_HW_CALIB_MAX,
 };
 
 struct adc_data {
@@ -169,7 +163,7 @@ int qcom_vadc_scale(enum vadc_scale_fn_type scaletype,
 
 int qcom_vadc_hw_scale(enum vadc_scale_fn_type scaletype,
 		    const struct vadc_prescale_ratio *prescale,
-		    const struct adc_data *data, unsigned int lut_index,
+		    const struct adc_data *data,
 		    u16 adc_code, int *result_mdec);
 
 int qcom_vadc_decimation_from_dt(u32 value);

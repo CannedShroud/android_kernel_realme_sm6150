@@ -91,7 +91,6 @@
 #include <linux/sched/coredump.h>
 #include <linux/sched/debug.h>
 #include <linux/sched/stat.h>
-#include <linux/sched/clock.h>
 #include <linux/flex_array.h>
 #include <linux/posix-timers.h>
 #include <linux/cpufreq_times.h>
@@ -103,7 +102,17 @@
 #include "fd.h"
 
 #include "../../lib/kstrtox.h"
+#ifdef VENDOR_EDIT
+/* Wen.Luo@BSP.Kernel.Stability, 2019/04/26, Add for Process memory statistics */
+extern size_t get_ion_heap_by_task(struct task_struct *task);
+extern size_t get_gl_mem_by_pid(pid_t pid);
+#endif
 
+#ifdef VENDOR_EDIT
+// Liujie.Xie@TECH.Kernel.Sched, 2019/05/22, add for ui first
+#define GLOBAL_SYSTEM_UID KUIDT_INIT(1000)
+#define GLOBAL_SYSTEM_GID KGIDT_INIT(1000)
+#endif
 /* NOTE:
  *	Implementing inode permission operations in /proc is almost
  *	certainly an error.  Permission checks need to happen during
@@ -338,6 +347,60 @@ static const struct file_operations proc_pid_cmdline_ops = {
 	.read	= proc_pid_cmdline_read,
 	.llseek	= generic_file_llseek,
 };
+
+#ifdef VENDOR_EDIT
+/* Wen.Luo@BSP.Kernel.Stability, 2019/04/26, Add for Process memory statistics */
+#define P2K(x) ((x) << (PAGE_SHIFT - 10))	/* Converts #Pages to KB */
+
+static ssize_t proc_pid_real_phymemory_read(struct file *file, char __user *buf,
+				     size_t _count, loff_t *pos)
+{
+	struct task_struct *tsk;
+	struct task_struct *p;
+	char buffer[128];
+	unsigned long rss = 0;
+	unsigned long rswap = 0;
+	unsigned long ion = 0;
+	unsigned long gpu = 0;
+	unsigned long totalram_size = 0;
+	size_t len;
+
+	BUG_ON(*pos < 0);
+
+	tsk = get_proc_task(file_inode(file));   //first_tid find will get_proc_task
+	if (!tsk)
+		return 0;
+	if (tsk->flags & PF_KTHREAD) {
+		put_task_struct(tsk);
+		return 0;
+	}
+	put_task_struct(tsk);
+
+	tsk = tsk->group_leader;
+	get_task_struct(tsk);
+	ion = get_ion_heap_by_task(tsk);
+	gpu = get_gl_mem_by_pid(tsk->pid);
+	gpu = gpu / 1024;
+
+	p = find_lock_task_mm(tsk);
+	if (p) {
+		rss = P2K(get_mm_rss(p->mm));
+		rswap = P2K(get_mm_counter(p->mm, MM_SWAPENTS));
+		task_unlock(p);
+	}
+	totalram_size = ion + gpu + rss + rswap;
+	put_task_struct(tsk);
+
+	len = snprintf(buffer, sizeof(buffer), "RSS:%luKB \nRswap:%luKB \nION:%luKB \nGPU:%luKB \nTotalsize:%luKB \n",
+		rss, rswap, ion, gpu, totalram_size);
+	return simple_read_from_buffer(buf, _count, pos, buffer, len);
+}
+
+static const struct file_operations proc_pid_real_phymemory_ops = {
+	.read	= proc_pid_real_phymemory_read,
+	.llseek	= generic_file_llseek,
+};
+#endif
 
 #ifdef CONFIG_KALLSYMS
 /*
@@ -877,6 +940,80 @@ static const struct file_operations proc_mem_operations = {
 	.release	= mem_release,
 };
 
+#ifdef VENDOR_EDIT
+// Liujie.Xie@TECH.Kernel.Sched, 2019/05/22, add for ui first
+static int proc_static_ux_show(struct seq_file *m, void *v)
+{
+    struct inode *inode = m->private;
+    struct task_struct *p;
+    p = get_proc_task(inode);
+    if (!p) {
+        return -ESRCH;
+    }
+    task_lock(p);
+    seq_printf(m, "%d\n", p->static_ux);
+    task_unlock(p);
+    put_task_struct(p);
+    return 0;
+}
+
+static int proc_static_ux_open(struct inode* inode, struct file *filp)
+{
+    return single_open(filp, proc_static_ux_show, inode);
+}
+
+static ssize_t proc_static_ux_write(struct file *file, const char __user *buf,
+                size_t count, loff_t *ppos)
+{
+    struct task_struct *task;
+    char buffer[PROC_NUMBUF] = {0};
+    const size_t max_len = sizeof(buffer) - 1;
+    int err, static_ux;
+    memset(buffer, 0, sizeof(buffer));
+    if (copy_from_user(buffer, buf, count > max_len ? max_len : count)) {
+        return -EFAULT;
+    }
+    err = kstrtoint(strstrip(buffer), 0, &static_ux);
+    if(err) {
+        return err;
+    }
+    task = get_proc_task(file_inode(file));
+    if (!task) {
+        return -ESRCH;
+    }
+
+    task->static_ux = static_ux != 0 ? 1 : 0;
+
+    put_task_struct(task);
+    return count;
+}
+
+static ssize_t proc_static_ux_read(struct file* file, char __user *buf,
+							    size_t count, loff_t *ppos)
+{
+	char buffer[PROC_NUMBUF];
+	struct task_struct *task = NULL;
+	int static_ux = -1;
+	size_t len = 0;
+	task = get_proc_task(file_inode(file));
+	if (!task) {
+		return -ESRCH;
+	}
+	static_ux = task->static_ux;
+	put_task_struct(task);
+	len = snprintf(buffer, sizeof(buffer), "%d\n", static_ux);
+	return simple_read_from_buffer(buf, count, ppos, buffer, len);
+}
+
+static const struct file_operations proc_static_ux_operations = {
+	.open       = proc_static_ux_open,
+	.write      = proc_static_ux_write,
+	.read       = proc_static_ux_read,
+	.llseek     = seq_lseek,
+	.release    = single_release,
+};
+#endif
+
 static int environ_open(struct inode *inode, struct file *file)
 {
 	return __mem_open(inode, file, PTRACE_MODE_READ);
@@ -1068,6 +1205,10 @@ static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
 
 			task_lock(p);
 			if (!p->vfork_done && process_shares_mm(p, mm)) {
+				pr_info("updating oom_score_adj for %d (%s) from %d to %d because it shares mm with %d (%s). Report if this is unexpected.\n",
+						task_pid_nr(p), p->comm,
+						p->signal->oom_score_adj, oom_adj,
+						task_pid_nr(task), task->comm);
 				p->signal->oom_score_adj = oom_adj;
 				if (!legacy && has_capability_noaudit(current, CAP_SYS_RESOURCE))
 					p->signal->oom_score_adj_min = (short)oom_adj;
@@ -1975,6 +2116,22 @@ int pid_getattr(const struct path *path, struct kstat *stat,
 	return 0;
 }
 
+#ifdef VENDOR_EDIT
+// Liujie.Xie@TECH.Kernel.Sched, 2019/05/22, add for ui first
+bool is_special_entry(struct dentry *dentry, const char* special_proc)
+{
+    const unsigned char *name;
+    if (NULL == dentry || NULL == special_proc)
+        return false;
+
+    name = dentry->d_name.name;
+    if (NULL != name && !strncmp(special_proc, name, 32))
+        return true;
+    else
+        return false;
+}
+#endif
+
 /* dentry stuff */
 
 /*
@@ -1999,7 +2156,13 @@ int pid_revalidate(struct dentry *dentry, unsigned int flags)
 
 	if (task) {
 		task_dump_owner(task, inode->i_mode, &inode->i_uid, &inode->i_gid);
-
+#ifdef VENDOR_EDIT
+// Liujie.Xie@TECH.Kernel.Sched, 2019/05/22, add for ui first
+        if (is_special_entry(dentry, "static_ux")) {
+            inode->i_uid = GLOBAL_SYSTEM_UID;
+            inode->i_gid = GLOBAL_SYSTEM_GID;
+        }
+#endif
 		inode->i_mode &= ~(S_ISUID | S_ISGID);
 		security_task_to_inode(task, inode);
 		put_task_struct(task);
@@ -2980,119 +3143,6 @@ static const struct file_operations proc_hung_task_detection_enabled_operations 
 };
 #endif
 
-static ssize_t proc_sched_task_boost_read(struct file *file,
-			   char __user *buf, size_t count, loff_t *ppos)
-{
-	struct task_struct *task = get_proc_task(file_inode(file));
-	char buffer[PROC_NUMBUF];
-	int sched_boost;
-	size_t len;
-
-	if (!task)
-		return -ESRCH;
-	sched_boost = task->boost;
-	put_task_struct(task);
-	len = snprintf(buffer, sizeof(buffer), "%d\n", sched_boost);
-	return simple_read_from_buffer(buf, count, ppos, buffer, len);
-}
-
-static ssize_t proc_sched_task_boost_write(struct file *file,
-		   const char __user *buf, size_t count, loff_t *ppos)
-{
-	struct task_struct *task = get_proc_task(file_inode(file));
-	char buffer[PROC_NUMBUF];
-	int sched_boost;
-	int err;
-
-	if (!task)
-		return -ESRCH;
-	memset(buffer, 0, sizeof(buffer));
-	if (count > sizeof(buffer) - 1)
-		count = sizeof(buffer) - 1;
-	if (copy_from_user(buffer, buf, count)) {
-		err = -EFAULT;
-		goto out;
-	}
-
-	err = kstrtoint(strstrip(buffer), 0, &sched_boost);
-	if (err)
-		goto out;
-	if (sched_boost < 0 || sched_boost > 2) {
-		err = -EINVAL;
-		goto out;
-	}
-
-	task->boost = sched_boost;
-	if (sched_boost == 0)
-		task->boost_period = 0;
-out:
-	put_task_struct(task);
-	return err < 0 ? err : count;
-}
-
-static ssize_t proc_sched_task_boost_period_read(struct file *file,
-			   char __user *buf, size_t count, loff_t *ppos)
-{
-	struct task_struct *task = get_proc_task(file_inode(file));
-	char buffer[PROC_NUMBUF];
-	u64 sched_boost_period_ms = 0;
-	size_t len;
-
-	if (!task)
-		return -ESRCH;
-	sched_boost_period_ms = div64_ul(task->boost_period, 1000000UL);
-	put_task_struct(task);
-	len = snprintf(buffer, sizeof(buffer), "%llu\n", sched_boost_period_ms);
-	return simple_read_from_buffer(buf, count, ppos, buffer, len);
-}
-
-static ssize_t proc_sched_task_boost_period_write(struct file *file,
-		   const char __user *buf, size_t count, loff_t *ppos)
-{
-	struct task_struct *task = get_proc_task(file_inode(file));
-	char buffer[PROC_NUMBUF];
-	unsigned int sched_boost_period;
-	int err;
-
-	if (!task)
-		return -ESRCH;
-
-	memset(buffer, 0, sizeof(buffer));
-	if (count > sizeof(buffer) - 1)
-		count = sizeof(buffer) - 1;
-	if (copy_from_user(buffer, buf, count)) {
-		err = -EFAULT;
-		goto out;
-	}
-
-	err = kstrtouint(strstrip(buffer), 0, &sched_boost_period);
-	if (err)
-		goto out;
-	if (task->boost == 0 && sched_boost_period) {
-		/* setting boost period without boost is invalid */
-		err = -EINVAL;
-		goto out;
-	}
-
-	task->boost_period = (u64)sched_boost_period * 1000 * 1000;
-	task->boost_expires = sched_clock() + task->boost_period;
-out:
-	put_task_struct(task);
-	return err < 0 ? err : count;
-}
-
-static const struct file_operations proc_task_boost_enabled_operations = {
-	.read       = proc_sched_task_boost_read,
-	.write      = proc_sched_task_boost_write,
-	.llseek     = generic_file_llseek,
-};
-
-static const struct file_operations proc_task_boost_period_operations = {
-	.read		= proc_sched_task_boost_period_read,
-	.write		= proc_sched_task_boost_period_write,
-	.llseek		= generic_file_llseek,
-};
-
 #ifdef CONFIG_USER_NS
 static int proc_id_map_open(struct inode *inode, struct file *file,
 	const struct seq_operations *seq_ops)
@@ -3271,8 +3321,6 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_SCHED_WALT
 	REG("sched_init_task_load", 00644, proc_pid_sched_init_task_load_operations),
 	REG("sched_group_id", 00666, proc_pid_sched_group_id_operations),
-	REG("sched_boost", 0666,  proc_task_boost_enabled_operations),
-	REG("sched_boost_period_ms", 0666, proc_task_boost_period_operations),
 #endif
 #ifdef CONFIG_SCHED_DEBUG
 	REG("sched",      S_IRUGO|S_IWUSR, proc_pid_sched_operations),
@@ -3288,6 +3336,13 @@ static const struct pid_entry tgid_base_stuff[] = {
 	ONE("stat",       S_IRUGO, proc_tgid_stat),
 	ONE("statm",      S_IRUGO, proc_pid_statm),
 	REG("maps",       S_IRUGO, proc_pid_maps_operations),
+#if defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+	/* Kui.Zhang@PSW.TEC.KERNEL.Performance, 2019/03/18,
+	 * read the reserved mmaps
+	 */
+	REG("reserve_maps", S_IRUSR, proc_pid_rmaps_operations),
+	ONE("reserve_area", S_IRUSR, proc_pid_reserve_area),
+#endif
 #ifdef CONFIG_NUMA
 	REG("numa_maps",  S_IRUGO, proc_pid_numa_maps_operations),
 #endif
@@ -3368,6 +3423,10 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_CPU_FREQ_TIMES
 	ONE("time_in_state", 0444, proc_time_in_state_show),
 #endif
+#ifdef VENDOR_EDIT
+/* Wen.Luo@BSP.Kernel.Stability, 2019/04/26, Add for Process memory statistics */
+	REG("real_phymemory",    S_IRUGO, proc_pid_real_phymemory_ops),
+#endif
 };
 
 static int proc_tgid_base_readdir(struct file *file, struct dir_context *ctx)
@@ -3381,15 +3440,6 @@ static const struct file_operations proc_tgid_base_operations = {
 	.iterate_shared	= proc_tgid_base_readdir,
 	.llseek		= generic_file_llseek,
 };
-
-struct pid *tgid_pidfd_to_pid(const struct file *file)
-{
-	if (!d_is_dir(file->f_path.dentry) ||
-	    (file->f_op != &proc_tgid_base_operations))
-		return ERR_PTR(-EBADF);
-
-	return proc_pid(file_inode(file));
-}
 
 static struct dentry *proc_tgid_base_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags)
 {
@@ -3770,6 +3820,14 @@ static const struct pid_entry tid_base_stuff[] = {
 #endif
 #ifdef CONFIG_CPU_FREQ_TIMES
 	ONE("time_in_state", 0444, proc_time_in_state_show),
+#endif
+#ifdef VENDOR_EDIT
+/* Wen.Luo@BSP.Kernel.Stability, 2019/04/26, Add for Process memory statistics */
+	REG("real_phymemory",    S_IRUGO, proc_pid_real_phymemory_ops),
+#endif
+#ifdef VENDOR_EDIT
+// Liujie.Xie@TECH.Kernel.Sched, 2019/05/22, add for ui first
+    REG("static_ux", S_IRUGO | S_IWGRP | S_IWUSR, proc_static_ux_operations),
 #endif
 };
 

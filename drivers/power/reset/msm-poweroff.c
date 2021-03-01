@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,8 +25,7 @@
 #include <linux/delay.h>
 #include <linux/input/qpnp-power-on.h>
 #include <linux/of_address.h>
-#include <linux/syscore_ops.h>
-#include <linux/crash_dump.h>
+#include <linux/sched/debug.h>
 
 #include <asm/cacheflush.h>
 #include <asm/system_misc.h>
@@ -52,7 +51,7 @@
 #define SCM_DLOAD_BOTHDUMPS	(SCM_DLOAD_MINIDUMP | SCM_DLOAD_FULLDUMP)
 
 static int restart_mode;
-static void *restart_reason;
+static void *restart_reason, *dload_type_addr;
 static bool scm_pmic_arbiter_disable_supported;
 static bool scm_deassert_ps_hold_supported;
 /* Download mode master kill-switch */
@@ -66,7 +65,7 @@ static void scm_disable_sdi(void);
  * So the SDI cannot be re-enabled when it already by-passed.
  */
 static int download_mode = 1;
-static bool force_warm_reboot;
+static struct kobject dload_kobj;
 
 #ifdef CONFIG_QCOM_DLOAD_MODE
 #define EDL_MODE_PROP "qcom,msm-imem-emergency_download_mode"
@@ -76,16 +75,76 @@ static bool force_warm_reboot;
 #endif
 
 static int in_panic;
-static struct kobject dload_kobj;
+
+#ifndef VENDOR_EDIT
+/*xing.xiong@BSP.Kernel.Driver, 2019/06/16, Add for minidump & fulldump control*/
 static int dload_type = SCM_DLOAD_FULLDUMP;
+#else
+#if defined(CONFIG_OPPO_DAILY_BUILD) || defined(CONFIG_OPPO_SPECIAL_BUILD)
+int dload_type = SCM_DLOAD_FULLDUMP;
+#else
+int dload_type = SCM_DLOAD_MINIDUMP;
+#endif
+#endif
+
 static void *dload_mode_addr;
-static void *dload_type_addr;
 static bool dload_mode_enabled;
 static void *emergency_dload_mode_addr;
 #ifdef CONFIG_RANDOMIZE_BASE
-static void __iomem *kaslr_imem_addr;
+static void *kaslr_imem_addr;
 #endif
 static bool scm_dload_supported;
+
+static bool force_warm_reboot;
+
+#ifdef VENDOR_EDIT
+/*YiXue.Ge@PSW.BSP.Kernel.Driver,2017/05/15,
+ * Add for can disable minidump by rom update
+ */
+int scm_set_dload_mode(int arg1, int arg2);
+static int romupdate_minidumpdisable = 0;
+static int __init minidump_disable_param(char *str)
+{
+	if (*str)
+		return 0;
+	romupdate_minidumpdisable = 1;
+	return 1;
+}
+__setup("minidump.disable", minidump_disable_param);
+
+void oppo_switch_fulldump(int on)
+{
+	int ret;
+	if (!dload_type_addr)
+		return;
+
+	if (dload_mode_addr) {
+		__raw_writel(0xE47B337D, dload_mode_addr);
+		__raw_writel(0xCE14091A,
+			dload_mode_addr + sizeof(unsigned int));
+		mb();
+	}
+	if(on){
+		show_state_filter(TASK_UNINTERRUPTIBLE);
+		ret = scm_set_dload_mode(SCM_DLOAD_FULLDUMP, 0);
+		if (ret)
+			pr_err("Failed to set secure DLOAD mode: %d\n", ret);
+		dload_type = SCM_DLOAD_FULLDUMP;
+	}else{
+		ret = scm_set_dload_mode(SCM_DLOAD_MINIDUMP, 0);
+		if (ret)
+			pr_err("Failed to set secure DLOAD mode: %d\n", ret);
+		dload_type = SCM_DLOAD_MINIDUMP;
+	}
+
+	if(dload_type == SCM_DLOAD_MINIDUMP)
+		__raw_writel(EMMC_DLOAD_TYPE, dload_type_addr);
+	else
+		__raw_writel(0, dload_type_addr);
+	dload_mode_enabled = on;
+}
+EXPORT_SYMBOL(oppo_switch_fulldump);
+#endif /*VENDOR_EDIT*/
 
 static int dload_set(const char *val, const struct kernel_param *kp);
 /* interface for exporting attributes */
@@ -130,9 +189,6 @@ int scm_set_dload_mode(int arg1, int arg2)
 
 		return 0;
 	}
-	if (!is_scm_armv8())
-		return scm_call_atomic2(SCM_SVC_BOOT, SCM_DLOAD_CMD, arg1,
-					arg2);
 
 	return scm_call2_atomic(SCM_SIP_FNID(SCM_SVC_BOOT, SCM_DLOAD_CMD),
 				&desc);
@@ -153,6 +209,21 @@ static void set_dload_mode(int on)
 	ret = scm_set_dload_mode(on ? dload_type : 0, 0);
 	if (ret)
 		pr_err("Failed to set secure DLOAD mode: %d\n", ret);
+
+#ifdef VENDOR_EDIT
+/*YiXue.Ge@PSW.BSP.Kernel.Driver,2017/05/12,
+ * Add for enable emmc dload when dload_type is minidump
+ */
+	if (dload_type_addr) {
+		if(dload_type == SCM_DLOAD_MINIDUMP) {
+			__raw_writel(EMMC_DLOAD_TYPE, dload_type_addr);
+			if (!on)
+				scm_disable_sdi();
+		} else {
+			__raw_writel(0, dload_type_addr);
+		}
+	}
+#endif /*VENDOR_EDIT*/
 
 	dload_mode_enabled = on;
 }
@@ -245,11 +316,7 @@ static void scm_disable_sdi(void)
 	};
 
 	/* Needed to bypass debug image on some chips */
-	if (!is_scm_armv8())
-		ret = scm_call_atomic2(SCM_SVC_BOOT,
-			SCM_WDOG_DEBUG_BOOT_PART, 1, 0);
-	else
-		ret = scm_call2_atomic(SCM_SIP_FNID(SCM_SVC_BOOT,
+	ret = scm_call2_atomic(SCM_SIP_FNID(SCM_SVC_BOOT,
 			  SCM_WDOG_DEBUG_BOOT_PART), &desc);
 	if (ret)
 		pr_err("Failed to disable secure wdog debug: %d\n", ret);
@@ -276,11 +343,7 @@ static void halt_spmi_pmic_arbiter(void)
 
 	if (scm_pmic_arbiter_disable_supported) {
 		pr_crit("Calling SCM to disable SPMI PMIC arbiter\n");
-		if (!is_scm_armv8())
-			scm_call_atomic1(SCM_SVC_PWR,
-					SCM_IO_DISABLE_PMIC_ARBITER, 0);
-		else
-			scm_call2_atomic(SCM_SIP_FNID(SCM_SVC_PWR,
+		scm_call2_atomic(SCM_SIP_FNID(SCM_SVC_PWR,
 				SCM_IO_DISABLE_PMIC_ARBITER), &desc);
 	}
 }
@@ -293,8 +356,8 @@ static void msm_restart_prepare(const char *cmd)
 	 * Write download mode flags if restart_mode says so
 	 * Kill download mode if master-kill switch is set
 	 */
-	if (!is_kdump_kernel())
-		set_dload_mode(download_mode &&
+
+	set_dload_mode(download_mode &&
 			(in_panic || restart_mode == RESTART_DLOAD));
 #endif
 
@@ -308,6 +371,22 @@ static void msm_restart_prepare(const char *cmd)
 		need_warm_reset = (get_dload_mode() ||
 				(cmd != NULL && cmd[0] != '\0'));
 	}
+
+#ifdef VENDOR_EDIT
+/*Fanhong.Kong@PSW.BSP.CHG,add 2018/3/25 panic reboot reason as kernel for hotfix*/
+	if (in_panic) {
+		qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
+		qpnp_pon_set_restart_reason(
+			PON_RESTART_REASON_KERNEL);
+		flush_cache_all();
+
+	#ifndef CONFIG_ARM64
+		outer_flush_all();
+	#endif
+
+		return;
+	}
+#endif
 
 	if (force_warm_reboot)
 		pr_info("Forcing a warm reset of the system\n");
@@ -343,6 +422,21 @@ static void msm_restart_prepare(const char *cmd)
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_KEYS_CLEAR);
 			__raw_writel(0x7766550a, restart_reason);
+		//xiaofan.yang@PSW.TECH.AgingTest, 2019/01/07,Add for factory agingtest
+		} else if(!strcmp(cmd, "sbllowmemtest")){
+			qpnp_pon_set_restart_reason(
+					PON_RESTART_REASON_SBL_DDR_CUS);
+			__raw_writel(0x7766550b, restart_reason);
+		}else if (!strcmp(cmd, "sblmemtest")){//oppo factory aging test
+			printk("[%s:%d] lunch ddr test!!\n", current->comm, current->pid);
+			qpnp_pon_set_restart_reason(
+					PON_RESTART_REASON_SBL_DDRTEST);
+			__raw_writel(0x7766550b, restart_reason);
+		} else if(!strcmp(cmd, "usermemaging")){
+			printk("[%s:%d] lunch user memory test!!\n", current->comm, current->pid);
+			qpnp_pon_set_restart_reason(
+					PON_RESTART_REASON_MEM_AGING);
+			__raw_writel(0x7766550b, restart_reason);
 		} else if (!strncmp(cmd, "oem-", 4)) {
 			unsigned long code;
 			int ret;
@@ -353,10 +447,56 @@ static void msm_restart_prepare(const char *cmd)
 					     restart_reason);
 		} else if (!strncmp(cmd, "edl", 3)) {
 			enable_emergency_dload_mode();
-		} else {
+		}
+	#ifdef VENDOR_EDIT
+	/*xing.xing@BSP.Bootloader.Bootflow, 2019/04/11, Add for oppo boot mode*/
+		else if (!strncmp(cmd, "rf", 2)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_RF);
+		} else if (!strncmp(cmd, "wlan",4)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_WLAN);
+	#ifdef USE_MOS_MODE
+		} else if (!strncmp(cmd, "mos", 3)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_MOS);
+	#endif
+		} else if (!strncmp(cmd, "ftm", 3)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_FACTORY);
+		} else if (!strncmp(cmd, "kernel", 6)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_KERNEL);
+		} else if (!strncmp(cmd, "modem", 5)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_MODEM);
+		} else if (!strncmp(cmd, "android", 7)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_ANDROID);
+		} else if (!strncmp(cmd, "silence", 7)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_SILENCE);
+		} else if (!strncmp(cmd, "sau", 3)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_SAU);
+		} else if (!strncmp(cmd, "safe", 4)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_SAFE);
+		}
+	#endif
+		else {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_NORMAL);
 			__raw_writel(0x77665501, restart_reason);
 		}
 	}
+	#ifdef VENDOR_EDIT
+	/*xing.xing@BSP.Bootloader.Bootflow, 2019/04/11, Add for oppo boot mode*/
+	else {
+		qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_NORMAL);
+	}
+	#endif
 
 	flush_cache_all();
 
@@ -429,7 +569,6 @@ static void do_msm_poweroff(void)
 	pr_err("Powering off has failed\n");
 }
 
-#ifdef CONFIG_QCOM_DLOAD_MODE
 static ssize_t attr_show(struct kobject *kobj, struct attribute *attr,
 				char *buf)
 {
@@ -547,7 +686,6 @@ static size_t store_dload_mode(struct kobject *kobj, struct attribute *attr,
 }
 RESET_ATTR(dload_mode, 0644, show_dload_mode, store_dload_mode);
 #endif
-
 RESET_ATTR(emmc_dload, 0644, show_emmc_dload, store_emmc_dload);
 
 static struct attribute *reset_attrs[] = {
@@ -561,26 +699,6 @@ static struct attribute *reset_attrs[] = {
 static struct attribute_group reset_attr_group = {
 	.attrs = reset_attrs,
 };
-#endif
-
-#if defined(CONFIG_RANDOMIZE_BASE) && defined(CONFIG_HIBERNATION)
-static void msm_poweroff_syscore_resume(void)
-{
-#define KASLR_OFFSET_BIT_MASK	0x00000000FFFFFFFF
-	if (kaslr_imem_addr) {
-		__raw_writel(0xdead4ead, kaslr_imem_addr);
-		__raw_writel(KASLR_OFFSET_BIT_MASK &
-		(kimage_vaddr - KIMAGE_VADDR), kaslr_imem_addr + 4);
-		__raw_writel(KASLR_OFFSET_BIT_MASK &
-			((kimage_vaddr - KIMAGE_VADDR) >> 32),
-			kaslr_imem_addr + 8);
-	}
-}
-
-static struct syscore_ops msm_poweroff_syscore_ops = {
-	.resume = msm_poweroff_syscore_resume,
-};
-#endif
 
 static int msm_restart_probe(struct platform_device *pdev)
 {
@@ -630,11 +748,8 @@ static int msm_restart_probe(struct platform_device *pdev)
 		__raw_writel(KASLR_OFFSET_BIT_MASK &
 			((kimage_vaddr - KIMAGE_VADDR) >> 32),
 			kaslr_imem_addr + 8);
+		iounmap(kaslr_imem_addr);
 	}
-
-#ifdef CONFIG_HIBERNATION
-	register_syscore_ops(&msm_poweroff_syscore_ops);
-#endif
 #endif
 	np = of_find_compatible_node(NULL, NULL,
 				"qcom,msm-imem-dload-type");
@@ -695,8 +810,18 @@ skip_sysfs_create:
 
 	if (scm_is_call_available(SCM_SVC_PWR, SCM_IO_DEASSERT_PS_HOLD) > 0)
 		scm_deassert_ps_hold_supported = true;
-	if (!is_kdump_kernel())
-		set_dload_mode(download_mode);
+
+#ifdef VENDOR_EDIT
+	/*YiXue.Ge@PSW.BSP.Kernel.Driver,2017/05/15,
+	 * Add for can disable minidump by rom update
+	 */
+
+	if(romupdate_minidumpdisable){
+		download_mode = 0;
+	}
+#endif
+
+	set_dload_mode(download_mode);
 	if (!download_mode)
 		scm_disable_sdi();
 
@@ -709,9 +834,6 @@ err_restart_reason:
 #ifdef CONFIG_QCOM_DLOAD_MODE
 	iounmap(emergency_dload_mode_addr);
 	iounmap(dload_mode_addr);
-#ifdef CONFIG_RANDOMIZE_BASE
-	iounmap(kaslr_imem_addr);
-#endif
 #endif
 	return ret;
 }

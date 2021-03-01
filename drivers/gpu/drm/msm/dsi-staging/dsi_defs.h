@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,9 +18,6 @@
 #include <drm/drm_mipi_dsi.h>
 #include "msm_drv.h"
 
-#define MAX_EXT_BRIDGE_PORT_CONFIG             16
-#define MAX_DSI_CTRLS_PER_DISPLAY             2
-
 #define DSI_H_TOTAL(t) (((t)->h_active) + ((t)->h_back_porch) + \
 			((t)->h_sync_width) + ((t)->h_front_porch))
 
@@ -36,16 +33,6 @@
 			value = (t)->h_active;\
 		value = value + (t)->h_back_porch + (t)->h_sync_width +\
 			(t)->h_front_porch;\
-		value;\
-	})
-
-#define DSI_H_ACTIVE_DSC(t) \
-	({\
-		u64 value;\
-		if ((t)->dsc_enabled && (t)->dsc)\
-			value = (t)->dsc->pclk_per_line;\
-		else\
-			value = (t)->h_active;\
 		value;\
 	})
 
@@ -96,8 +83,6 @@ enum dsi_op_mode {
  * @DSI_MODE_FLAG_VRR: Seamless transition is DynamicFPS.
  *                     New timing values are sent from DAL.
  * @DSI_MODE_FLAG_DYN_CLK: Seamless transition is dynamic clock change
- * @DSI_MODE_FLAG_POMS:
- *     Seamless transition is dynamic panel operating mode switch
  */
 enum dsi_mode_flags {
 	DSI_MODE_FLAG_SEAMLESS			= BIT(0),
@@ -106,7 +91,6 @@ enum dsi_mode_flags {
 	DSI_MODE_FLAG_DMS			= BIT(3),
 	DSI_MODE_FLAG_VRR			= BIT(4),
 	DSI_MODE_FLAG_DYN_CLK			= BIT(5),
-	DSI_MODE_FLAG_POMS			= BIT(6),
 };
 
 /**
@@ -241,23 +225,6 @@ enum dsi_dfps_type {
 };
 
 /**
- * enum dsi_dyn_clk_feature_type - Dynamic clock feature support type
- * @DSI_DYN_CLK_TYPE_LEGACY:	Constant FPS is not supported
- * @DSI_DYN_CLK_TYPE_CONST_FPS_ADJUST_HFP:	Constant FPS supported with
- *		change in hfp
- * @DSI_DYN_CLK_TYPE_CONST_FPS_ADJUST_VFP:	Constant FPS supported with
- *		change in vfp
- * @DSI_DYN_CLK_TYPE_MAX:
- */
-
-enum dsi_dyn_clk_feature_type {
-	DSI_DYN_CLK_TYPE_LEGACY = 0,
-	DSI_DYN_CLK_TYPE_CONST_FPS_ADJUST_HFP,
-	DSI_DYN_CLK_TYPE_CONST_FPS_ADJUST_VFP,
-	DSI_DYN_CLK_TYPE_MAX
-};
-
-/**
  * enum dsi_cmd_set_type  - DSI command set type
  * @DSI_CMD_SET_PRE_ON:	                   Panel pre on
  * @DSI_CMD_SET_ON:                        Panel on
@@ -282,6 +249,20 @@ enum dsi_dyn_clk_feature_type {
  * @DSI_CMD_SET_POST_TIMING_SWITCH:        Post timing switch
  * @DSI_CMD_SET_QSYNC_ON                   Enable qsync mode
  * @DSI_CMD_SET_QSYNC_OFF                  Disable qsync mode
+#ifdef VENDOR_EDIT
+ * @liping-m@PSW.MM.Display.LCD.Stability,2018/12/14, add for lcd notes
+ * @DSI_CMD_POST_ON_BACKLIGHT:             Panel on cmd send for AOD and Fingerprint
+ * @DSI_CMD_AOD_ON:                        Panel AOD on cmd
+ * @DSI_CMD_AOD_OFF:                       Panel AOD off cmd
+ * @DSI_CMD_HBM_ON:                        Panel Fingerprint high brightness 670nit on cmd
+ * @DSI_CMD_HBM_OFF:                       Panel Fingerprint high brightness off cmd
+ * @DSI_CMD_AOD_HBM_ON:                    Panel AOD and Fingerprint high brightness  670nit on cmd
+ * @DSI_CMD_AOD_HBM_OFF:                   Panel AOD and Fingerprint high brightness off cmd
+ * @DSI_CMD_SEED_DCI_P3:                   Panel seed level 3 cmd
+ * @DSI_CMD_SEED_SRGB:                     Panel seed SRGB mode cmd
+ * @DSI_CMD_SEED_OFF:                      Panel seed off cmd
+ * @DSI_CMD_NORMAL_HBM_ON:                 Panel normal HBM 600nit on cmd
+#endif
  * @DSI_CMD_SET_MAX
  */
 enum dsi_cmd_set_type {
@@ -308,6 +289,28 @@ enum dsi_cmd_set_type {
 	DSI_CMD_SET_POST_TIMING_SWITCH,
 	DSI_CMD_SET_QSYNC_ON,
 	DSI_CMD_SET_QSYNC_OFF,
+#ifdef VENDOR_EDIT
+/* liping-m@PSW.MM.Display.LCD.Stability,2018/07/03, optimize screen on*/
+	DSI_CMD_POST_ON_BACKLIGHT,
+	DSI_CMD_AOD_ON,
+	DSI_CMD_AOD_OFF,
+	DSI_CMD_HBM_ON,
+	DSI_CMD_HBM_OFF,
+	DSI_CMD_AOD_HBM_ON,
+	DSI_CMD_AOD_HBM_OFF,
+/*mark.yao@PSW.MM.Display.LCD.Stability,2018/4/28,add for sRGB and DCI-P3*/
+	DSI_CMD_SEED_MODE0,
+	DSI_CMD_SEED_MODE1,
+	DSI_CMD_SEED_MODE2,
+	DSI_CMD_SEED_MODE3,
+	DSI_CMD_SEED_MODE4,
+	DSI_CMD_SEED_OFF,
+	DSI_CMD_NORMAL_HBM_ON,
+	DSI_CMD_NORMAL_652NIT_HBM_ON,
+	DSI_CMD_NORMAL_573NIT_HBM_ON,
+	DSI_CMD_AOD_HIGH_LIGHT_MODE,
+	DSI_CMD_AOD_LOW_LIGHT_MODE,
+#endif
 	DSI_CMD_SET_MAX
 };
 
@@ -472,16 +475,11 @@ struct dsi_split_link_config {
  * @t_clk_pre:           Number of byte clock cycles that the high spped clock
  *                       shall be driven prior to data lane transitions from LP
  *                       to HS mode.
- * @t_clk_pre_extend:    Increment t_clk_pre counter by 2 byteclk if set to
- *                       true, otherwise increment by 1 byteclk.
  * @ignore_rx_eot:       Ignore Rx EOT packets if set to true.
  * @append_tx_eot:       Append EOT packets for forward transmissions if set to
  *                       true.
- * @ext_bridge_num:      Connected external bridge count.
- * @ext_bridge_map:      External bridge config reg needs to match with the port
- *                       reg config.
+ * @ext_bridge_mode:     External bridge is connected.
  * @force_hs_clk_lane:   Send continuous clock to the panel.
- * @phy_type:            DPHY/CPHY is enabled for this panel.
  * @dsi_split_link_config:  Split Link Configuration.
  */
 struct dsi_host_common_cfg {
@@ -499,13 +497,10 @@ struct dsi_host_common_cfg {
 	bool bit_swap_blue;
 	u32 t_clk_post;
 	u32 t_clk_pre;
-	bool t_clk_pre_extend;
 	bool ignore_rx_eot;
 	bool append_tx_eot;
-	u32 ext_bridge_num;
-	u32 ext_bridge_map[MAX_DSI_CTRLS_PER_DISPLAY];
+	bool ext_bridge_mode;
 	bool force_hs_clk_lane;
-	enum dsi_phy_type phy_type;
 	struct dsi_split_link_config split_link;
 };
 
@@ -562,7 +557,7 @@ struct dsi_cmd_engine_cfg {
  * @common_config:         Host configuration common to both Video and Cmd mode.
  * @video_engine:          Video engine configuration if panel is in video mode.
  * @cmd_engine:            Cmd engine configuration if panel is in cmd mode.
- * @esc_clk_rate_hz:      Esc clock frequency in Hz.
+ * @esc_clk_rate_khz:      Esc clock frequency in Hz.
  * @bit_clk_rate_hz:       Bit clock frequency in Hz.
  * @bit_clk_rate_hz_override: DSI bit clk rate override from dt/sysfs.
  * @video_timing:          Video timing information of a frame.
@@ -623,13 +618,11 @@ struct dsi_display_mode_priv_info {
  * @timing:         Timing parameters for the panel.
  * @pixel_clk_khz:  Pixel clock in Khz.
  * @dsi_mode_flags: Flags to signal other drm components via private flags
- * @panel_mode:     Panel operating mode
  * @priv_info:      Mode private info
  */
 struct dsi_display_mode {
 	struct dsi_mode_info timing;
 	u32 pixel_clk_khz;
-	enum dsi_op_mode panel_mode;
 	u32 dsi_mode_flags;
 	struct dsi_display_mode_priv_info *priv_info;
 };

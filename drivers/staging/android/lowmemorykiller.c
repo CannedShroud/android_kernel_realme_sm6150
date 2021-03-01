@@ -49,7 +49,14 @@
 #include <linux/cpuset.h>
 #include <linux/vmpressure.h>
 #include <linux/freezer.h>
-#include <linux/memory.h>
+
+
+
+
+
+
+
+
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/almk.h>
@@ -63,6 +70,7 @@
 
 #define CREATE_TRACE_POINTS
 #include "trace/lowmemorykiller.h"
+
 
 /* to enable lowmemorykiller */
 static int enable_lmk = 1;
@@ -86,6 +94,19 @@ static int lowmem_minfree[6] = {
 
 static int lowmem_minfree_size = 4;
 static int lmk_fast_run = 1;
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 static unsigned long lowmem_deathpending_timeout;
 
@@ -112,14 +133,8 @@ static atomic_t shift_adj = ATOMIC_INIT(0);
 static short adj_max_shift = 353;
 module_param_named(adj_max_shift, adj_max_shift, short, 0644);
 
-enum {
-	ADAPTIVE_LMK_DISABLED = 0,
-	ADAPTIVE_LMK_ENABLED,
-	ADAPTIVE_LMK_WAS_ENABLED,
-};
-
 /* User knob to enable/disable adaptive lmk feature */
-static int enable_adaptive_lmk = ADAPTIVE_LMK_DISABLED;
+static int enable_adaptive_lmk;
 module_param_named(enable_adaptive_lmk, enable_adaptive_lmk, int, 0644);
 
 /*
@@ -156,11 +171,13 @@ enum {
 	VMPRESSURE_ADJUST_NORMAL,
 };
 
+
 static int adjust_minadj(short *min_score_adj)
 {
 	int ret = VMPRESSURE_NO_ADJUST;
 
-	if (enable_adaptive_lmk != ADAPTIVE_LMK_ENABLED)
+
+	if (!enable_adaptive_lmk)
 		return 0;
 
 	if (atomic_read(&shift_adj) &&
@@ -171,6 +188,44 @@ static int adjust_minadj(short *min_score_adj)
 			ret = VMPRESSURE_ADJUST_NORMAL;
 		*min_score_adj = adj_max_shift;
 	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 	atomic_set(&shift_adj, 0);
 
 	return ret;
@@ -183,7 +238,7 @@ static int lmk_vmpressure_notifier(struct notifier_block *nb,
 	unsigned long pressure = action;
 	int array_size = ARRAY_SIZE(lowmem_adj);
 
-	if (enable_adaptive_lmk != ADAPTIVE_LMK_ENABLED)
+	if (!enable_adaptive_lmk)
 		return 0;
 
 	if (pressure >= 95) {
@@ -434,6 +489,7 @@ void tune_lmk_param(int *other_free, int *other_file, struct shrink_control *sc)
 	}
 }
 
+
 /*
  * Return the percent of memory which gfp_mask is allowed to allocate from.
  * CMA memory is assumed to be a small percent and is not considered.
@@ -628,6 +684,21 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		}
 		task_unlock(selected);
 		trace_lowmemory_kill(selected, cache_size, cache_limit, free);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 		lowmem_print(1, "Killing '%s' (%d) (tgid %d), adj %hd,\n"
 			"to free %ldkB on behalf of '%s' (%d) because\n"
 			"cache %ldkB is below limit %ldkB for oom score %hd\n"
@@ -685,23 +756,6 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 	return rem;
 }
 
-static int lmk_hotplug_callback(struct notifier_block *self,
-				unsigned long action, void *arg)
-{
-	switch (action) {
-	case MEM_GOING_OFFLINE:
-		if (enable_adaptive_lmk == ADAPTIVE_LMK_ENABLED)
-			enable_adaptive_lmk = ADAPTIVE_LMK_WAS_ENABLED;
-		break;
-	case MEM_OFFLINE:
-		if (enable_adaptive_lmk == ADAPTIVE_LMK_WAS_ENABLED)
-			enable_adaptive_lmk = ADAPTIVE_LMK_ENABLED;
-		break;
-	default:
-		break;
-	}
-	return NOTIFY_OK;
-}
 
 static struct shrinker lowmem_shrinker = {
 	.scan_objects = lowmem_scan,
@@ -709,20 +763,54 @@ static struct shrinker lowmem_shrinker = {
 	.seeks = DEFAULT_SEEKS * 16
 };
 
-static struct notifier_block lmk_memory_callback_nb = {
-	.notifier_call = lmk_hotplug_callback,
-	.priority = 0,
-};
+
 
 static int __init lowmem_init(void)
 {
 	register_shrinker(&lowmem_shrinker);
 	vmpressure_notifier_register(&lmk_vmpr_nb);
-	if (register_hotmemory_notifier(&lmk_memory_callback_nb))
-		lowmem_print(1, "Registering memory hotplug notifier failed\n");
 	return 0;
 }
 device_initcall(lowmem_init);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #ifdef CONFIG_ANDROID_LOW_MEMORY_KILLER_AUTODETECT_OOM_ADJ_VALUES
 static short lowmem_oom_adj_to_oom_score_adj(short oom_adj)

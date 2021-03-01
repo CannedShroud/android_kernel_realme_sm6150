@@ -63,6 +63,17 @@
 extern void printascii(char *);
 #endif
 
+
+#ifdef VENDOR_EDIT
+/*xing.xiong@BSP.Kernel.Driver, 2019/06/14, Add for uart control via cmdline*/ 
+#include <soc/oppo/boot_mode.h>
+bool printk_disable_uart = false;
+bool oem_disable_uart(void)
+{
+	return printk_disable_uart;
+}
+#endif
+
 int console_printk[4] = {
 	CONSOLE_LOGLEVEL_DEFAULT,	/* console_loglevel */
 	MESSAGE_LOGLEVEL_DEFAULT,	/* default_message_loglevel */
@@ -436,7 +447,6 @@ static u32 clear_idx;
 /* record buffer */
 #define LOG_ALIGN __alignof__(struct printk_log)
 #define __LOG_BUF_LEN (1 << CONFIG_LOG_BUF_SHIFT)
-#define LOG_BUF_LEN_MAX (u32)(1 << 31)
 static char __log_buf[__LOG_BUF_LEN] __aligned(LOG_ALIGN);
 static char *log_buf = __log_buf;
 static u32 log_buf_len = __LOG_BUF_LEN;
@@ -591,6 +601,21 @@ static int log_store(int facility, int level,
 	u32 size, pad_len;
 	u16 trunc_msg_len = 0;
 
+	#ifdef VENDOR_EDIT 
+	//part 1/2: yixue.ge 2015-04-22 add for add cpu number and current id and current comm to kmsg
+	int this_cpu = smp_processor_id();
+	char tbuf[64];
+	unsigned tlen;
+
+	if (console_suspended == 0) {
+	tlen = snprintf(tbuf, sizeof(tbuf), " (%x)[%d:%s]",
+				this_cpu, current->pid, current->comm); 
+	} else {
+		tlen = snprintf(tbuf, sizeof(tbuf), " %x)", this_cpu);
+	}
+	text_len += tlen;
+	#endif //add end part 1/3
+
 	/* number of '\0' padding bytes to next message */
 	size = msg_used_size(text_len, dict_len, &pad_len);
 
@@ -615,7 +640,13 @@ static int log_store(int facility, int level,
 
 	/* fill message */
 	msg = (struct printk_log *)(log_buf + log_next_idx);
+	#ifndef VENDOR_EDIT 
+	//part 2/2: yixue.ge 2015-04-22 add for add cpu number and current id and current comm to kmsg
 	memcpy(log_text(msg), text, text_len);
+	#else
+	memcpy(log_text(msg), tbuf, tlen);
+	memcpy(log_text(msg) + tlen, text, text_len-tlen);
+	#endif //add end part 3/3
 	msg->text_len = text_len;
 	if (trunc_msg_len) {
 		memcpy(log_text(msg) + text_len, trunc_msg, trunc_msg_len);
@@ -1037,23 +1068,18 @@ void log_buf_vmcoreinfo_setup(void)
 static unsigned long __initdata new_log_buf_len;
 
 /* we practice scaling the ring buffer by powers of 2 */
-static void __init log_buf_len_update(u64 size)
+static void __init log_buf_len_update(unsigned size)
 {
-	if (size > (u64)LOG_BUF_LEN_MAX) {
-		size = (u64)LOG_BUF_LEN_MAX;
-		pr_err("log_buf over 2G is not supported.\n");
-	}
-
 	if (size)
 		size = roundup_pow_of_two(size);
 	if (size > log_buf_len)
-		new_log_buf_len = (unsigned long)size;
+		new_log_buf_len = size;
 }
 
 /* save requested log_buf_len since it's too early to process it */
 static int __init log_buf_len_setup(char *str)
 {
-	u64 size;
+	unsigned int size;
 
 	if (!str)
 		return -EINVAL;
@@ -1103,7 +1129,7 @@ void __init setup_log_buf(int early)
 {
 	unsigned long flags;
 	char *new_log_buf;
-	unsigned int free;
+	int free;
 
 	if (log_buf != __log_buf)
 		return;
@@ -1123,7 +1149,7 @@ void __init setup_log_buf(int early)
 	}
 
 	if (unlikely(!new_log_buf)) {
-		pr_err("log_buf_len: %lu bytes not available\n",
+		pr_err("log_buf_len: %ld bytes not available\n",
 			new_log_buf_len);
 		return;
 	}
@@ -1136,8 +1162,8 @@ void __init setup_log_buf(int early)
 	memcpy(log_buf, __log_buf, __LOG_BUF_LEN);
 	logbuf_unlock_irqrestore(flags);
 
-	pr_info("log_buf_len: %u bytes\n", log_buf_len);
-	pr_info("early log buf free: %u(%u%%)\n",
+	pr_info("log_buf_len: %d bytes\n", log_buf_len);
+	pr_info("early log buf free: %d(%d%%)\n",
 		free, (free * 100) / __LOG_BUF_LEN);
 }
 
@@ -1218,6 +1244,11 @@ static inline void boot_delay_msec(int level)
 
 static bool printk_time = IS_ENABLED(CONFIG_PRINTK_TIME);
 module_param_named(time, printk_time, bool, S_IRUGO | S_IWUSR);
+
+#ifdef VENDOR_EDIT
+/*xing.xiong@BSP.Kernel.Driver, 2019/06/14, Add for uart control via cmdline*/
+module_param_named(disable_uart, printk_disable_uart, bool, S_IRUGO | S_IWUSR);
+#endif
 
 static size_t print_time(u64 ts, char *buf)
 {
@@ -1559,146 +1590,6 @@ SYSCALL_DEFINE3(syslog, int, type, char __user *, buf, int, len)
 }
 
 /*
- * Special console_lock variants that help to reduce the risk of soft-lockups.
- * They allow to pass console_lock to another printk() call using a busy wait.
- */
-
-#ifdef CONFIG_LOCKDEP
-static struct lockdep_map console_owner_dep_map = {
-	.name = "console_owner"
-};
-#endif
-
-static DEFINE_RAW_SPINLOCK(console_owner_lock);
-static struct task_struct *console_owner;
-static bool console_waiter;
-
-/**
- * console_lock_spinning_enable - mark beginning of code where another
- *	thread might safely busy wait
- *
- * This basically converts console_lock into a spinlock. This marks
- * the section where the console_lock owner can not sleep, because
- * there may be a waiter spinning (like a spinlock). Also it must be
- * ready to hand over the lock at the end of the section.
- */
-static void console_lock_spinning_enable(void)
-{
-	raw_spin_lock(&console_owner_lock);
-	console_owner = current;
-	raw_spin_unlock(&console_owner_lock);
-
-	/* The waiter may spin on us after setting console_owner */
-	spin_acquire(&console_owner_dep_map, 0, 0, _THIS_IP_);
-}
-
-/**
- * console_lock_spinning_disable_and_check - mark end of code where another
- *	thread was able to busy wait and check if there is a waiter
- *
- * This is called at the end of the section where spinning is allowed.
- * It has two functions. First, it is a signal that it is no longer
- * safe to start busy waiting for the lock. Second, it checks if
- * there is a busy waiter and passes the lock rights to her.
- *
- * Important: Callers lose the lock if there was a busy waiter.
- *	They must not touch items synchronized by console_lock
- *	in this case.
- *
- * Return: 1 if the lock rights were passed, 0 otherwise.
- */
-static int console_lock_spinning_disable_and_check(void)
-{
-	int waiter;
-
-	raw_spin_lock(&console_owner_lock);
-	waiter = READ_ONCE(console_waiter);
-	console_owner = NULL;
-	raw_spin_unlock(&console_owner_lock);
-
-	if (!waiter) {
-		spin_release(&console_owner_dep_map, 1, _THIS_IP_);
-		return 0;
-	}
-
-	/* The waiter is now free to continue */
-	WRITE_ONCE(console_waiter, false);
-
-	spin_release(&console_owner_dep_map, 1, _THIS_IP_);
-
-	/*
-	 * Hand off console_lock to waiter. The waiter will perform
-	 * the up(). After this, the waiter is the console_lock owner.
-	 */
-	mutex_release(&console_lock_dep_map, 1, _THIS_IP_);
-	return 1;
-}
-
-/**
- * console_trylock_spinning - try to get console_lock by busy waiting
- *
- * This allows to busy wait for the console_lock when the current
- * owner is running in specially marked sections. It means that
- * the current owner is running and cannot reschedule until it
- * is ready to lose the lock.
- *
- * Return: 1 if we got the lock, 0 othrewise
- */
-static int console_trylock_spinning(void)
-{
-	struct task_struct *owner = NULL;
-	bool waiter;
-	bool spin = false;
-	unsigned long flags;
-
-	if (console_trylock())
-		return 1;
-
-	printk_safe_enter_irqsave(flags);
-
-	raw_spin_lock(&console_owner_lock);
-	owner = READ_ONCE(console_owner);
-	waiter = READ_ONCE(console_waiter);
-	if (!waiter && owner && owner != current) {
-		WRITE_ONCE(console_waiter, true);
-		spin = true;
-	}
-	raw_spin_unlock(&console_owner_lock);
-
-	/*
-	 * If there is an active printk() writing to the
-	 * consoles, instead of having it write our data too,
-	 * see if we can offload that load from the active
-	 * printer, and do some printing ourselves.
-	 * Go into a spin only if there isn't already a waiter
-	 * spinning, and there is an active printer, and
-	 * that active printer isn't us (recursive printk?).
-	 */
-	if (!spin) {
-		printk_safe_exit_irqrestore(flags);
-		return 0;
-	}
-
-	/* We spin waiting for the owner to release us */
-	spin_acquire(&console_owner_dep_map, 0, 0, _THIS_IP_);
-	/* Owner will clear console_waiter on hand off */
-	while (READ_ONCE(console_waiter))
-		cpu_relax();
-	spin_release(&console_owner_dep_map, 1, _THIS_IP_);
-
-	printk_safe_exit_irqrestore(flags);
-	/*
-	 * The owner passed the console lock to us.
-	 * Since we did not spin on console lock, annotate
-	 * this as a trylock. Otherwise lockdep will
-	 * complain.
-	 */
-	mutex_acquire(&console_lock_dep_map, 0, 1, _THIS_IP_);
-
-	return 1;
-}
-
-/*
  * Call the console drivers, asking them to write out
  * log_buf[start] to log_buf[end - 1].
  * The console_lock must be held.
@@ -1714,6 +1605,15 @@ static void call_console_drivers(const char *ext_text, size_t ext_len,
 		return;
 
 	for_each_console(con) {
+#ifdef VENDOR_EDIT
+/*xing.xiong@BSP.Kernel.Driver, 2019/06/14, Add for uart control via cmdline*/
+		if ((con->flags & CON_CONSDEV) &&
+			(printk_disable_uart ||
+			get_boot_mode() == MSM_BOOT_MODE__FACTORY ||
+			get_boot_mode() == MSM_BOOT_MODE__RF ||
+			get_boot_mode() == MSM_BOOT_MODE__WLAN))
+			continue;
+#endif
 		if (exclusive_console && con != exclusive_console)
 			continue;
 		if (!(con->flags & CON_ENABLED))
@@ -1927,7 +1827,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 		 * semaphore.  The release will print out buffers and wake up
 		 * /dev/kmsg and syslog() users.
 		 */
-		if (console_trylock_spinning())
+		if (console_trylock())
 			console_unlock();
 		preempt_enable();
 	}
@@ -2030,8 +1930,6 @@ static ssize_t msg_print_ext_header(char *buf, size_t size,
 static ssize_t msg_print_ext_body(char *buf, size_t size,
 				  char *dict, size_t dict_len,
 				  char *text, size_t text_len) { return 0; }
-static void console_lock_spinning_enable(void) { }
-static int console_lock_spinning_disable_and_check(void) { return 0; }
 static void call_console_drivers(const char *ext_text, size_t ext_len,
 				 const char *text, size_t len) {}
 static size_t msg_print_text(const struct printk_log *msg,
@@ -2397,29 +2295,14 @@ skip:
 		console_seq++;
 		raw_spin_unlock(&logbuf_lock);
 
-		/*
-		 * While actively printing out messages, if another printk()
-		 * were to occur on another CPU, it may wait for this one to
-		 * finish. This task can not be preempted if there is a
-		 * waiter waiting to take over.
-		 */
-		console_lock_spinning_enable();
-
 		stop_critical_timings();	/* don't trace print latency */
 		call_console_drivers(ext_text, ext_len, text, len);
 		start_critical_timings();
-
-		if (console_lock_spinning_disable_and_check()) {
-			printk_safe_exit_irqrestore(flags);
-			goto out;
-		}
-
 		printk_safe_exit_irqrestore(flags);
 
 		if (do_cond_resched)
 			cond_resched();
 	}
-
 	console_locked = 0;
 
 	/* Release the exclusive_console once it is used */
@@ -2444,7 +2327,6 @@ skip:
 	if (retry && console_trylock())
 		goto again;
 
-out:
 	if (wake_klogd)
 		wake_up_klogd();
 }
@@ -3209,7 +3091,7 @@ bool kmsg_dump_get_buffer(struct kmsg_dumper *dumper, bool syslog,
 	/* move first record forward until length fits into the buffer */
 	seq = dumper->cur_seq;
 	idx = dumper->cur_idx;
-	while (l >= size && seq < dumper->next_seq) {
+	while (l > size && seq < dumper->next_seq) {
 		struct printk_log *msg = log_from_idx(idx);
 
 		l -= msg_print_text(msg, true, NULL, 0);

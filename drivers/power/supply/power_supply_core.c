@@ -34,6 +34,10 @@ static struct device_type power_supply_dev_type;
 
 #define POWER_SUPPLY_DEFERRED_REGISTER_TIME	msecs_to_jiffies(10)
 
+
+
+
+
 static bool __power_supply_is_supplied_by(struct power_supply *supplier,
 					 struct power_supply *supply)
 {
@@ -94,7 +98,11 @@ static void power_supply_changed_work(struct work_struct *work)
 		spin_unlock_irqrestore(&psy->changed_lock, flags);
 		class_for_each_device(power_supply_class, NULL, psy,
 				      __power_supply_changed_work);
+
 		power_supply_update_leds(psy);
+
+
+
 		atomic_notifier_call_chain(&power_supply_notifier,
 				PSY_EVENT_PROP_CHANGED, psy);
 		kobject_uevent(&psy->dev.kobj, KOBJ_CHANGE);
@@ -901,13 +909,13 @@ __power_supply_register(struct device *parent,
 	}
 
 	spin_lock_init(&psy->changed_lock);
-	rc = device_add(dev);
-	if (rc)
-		goto device_add_failed;
-
 	rc = device_init_wakeup(dev, ws);
 	if (rc)
 		goto wakeup_init_failed;
+
+	rc = device_add(dev);
+	if (rc)
+		goto device_add_failed;
 
 	rc = psy_register_thermal(psy);
 	if (rc)
@@ -939,8 +947,8 @@ create_triggers_failed:
 	psy_unregister_thermal(psy);
 register_thermal_failed:
 	device_del(dev);
-wakeup_init_failed:
 device_add_failed:
+wakeup_init_failed:
 check_supplies_failed:
 dev_set_name_failed:
 	put_device(dev);

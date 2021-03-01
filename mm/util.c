@@ -238,13 +238,26 @@ void __vma_link_list(struct mm_struct *mm, struct vm_area_struct *vma,
 		struct vm_area_struct *prev, struct rb_node *rb_parent)
 {
 	struct vm_area_struct *next;
+#if defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+	/* Kui.Zhang@PSW.TEC.KERNEL.Performance, 2019/03/18,
+	 * use reserved area
+	 */
+	struct vm_area_struct *curr_vma = NULL;
+#endif
 
 	vma->vm_prev = prev;
 	if (prev) {
 		next = prev->vm_next;
 		prev->vm_next = vma;
 	} else {
+#if defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+		/* Kui.Zhang@PSW.TEC.KERNEL.Performance, 2019/03/18,
+		 * use reserved area
+		 */
+		curr_vma = vma;
+#else
 		mm->mmap = vma;
+#endif
 		if (rb_parent)
 			next = rb_entry(rb_parent,
 					struct vm_area_struct, vm_rb);
@@ -254,6 +267,18 @@ void __vma_link_list(struct mm_struct *mm, struct vm_area_struct *vma,
 	vma->vm_next = next;
 	if (next)
 		next->vm_prev = vma;
+
+#if defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+	/* Kui.Zhang@PSW.TEC.KERNEL.Performance, 2019/03/18,
+	 * use reserved area
+	 */
+	if (curr_vma) {
+		if (BACKUP_ALLOC_FLAG(vma->vm_flags))
+			mm->reserve_mmap = curr_vma;
+		else
+			mm->mmap = curr_vma;
+	}
+#endif
 }
 
 /* Check if the vma is being used as a stack by this task */
@@ -332,6 +357,14 @@ unsigned long vm_mmap_pgoff(struct file *file, unsigned long addr,
 			return -EINTR;
 		ret = do_mmap_pgoff(file, addr, len, prot, flag, pgoff,
 				    &populate, &uf);
+#if defined(VENDOR_EDIT) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+		/* Kui.Zhang@TEC.Kernel.Performance, 2019/03/27,
+		 * update the mm->mmap_base while create reserved area pass,
+		 * the gap between stack and mmap_base is decreased.
+		 */
+		if (!IS_ERR_VALUE(ret) && check_reserve_mmap_doing(mm))
+			mm->mmap_base += PAGE_ALIGN(len);
+#endif
 		up_write(&mm->mmap_sem);
 		userfaultfd_unmap_complete(mm, &uf);
 		if (populate)
@@ -367,8 +400,7 @@ EXPORT_SYMBOL(vm_mmap);
  * __GFP_RETRY_MAYFAIL is supported, and it should be used only if kmalloc is
  * preferable to the vmalloc fallback, due to visible performance drawbacks.
  *
- * Please note that any use of gfp flags outside of GFP_KERNEL is careful to not
- * fall back to vmalloc.
+ * Any use of gfp flags outside of GFP_KERNEL should be consulted with mm people.
  */
 void *kvmalloc_node(size_t size, gfp_t flags, int node)
 {
@@ -379,8 +411,7 @@ void *kvmalloc_node(size_t size, gfp_t flags, int node)
 	 * vmalloc uses GFP_KERNEL for some internal allocations (e.g page tables)
 	 * so the given set of flags has to be compatible.
 	 */
-	if ((flags & GFP_KERNEL) != GFP_KERNEL)
-		return kmalloc_node(size, flags, node);
+	WARN_ON_ONCE((flags & GFP_KERNEL) != GFP_KERNEL);
 
 	/*
 	 * We want to attempt a large physically contiguous block first because
@@ -419,24 +450,6 @@ void kvfree(const void *addr)
 }
 EXPORT_SYMBOL(kvfree);
 
-/**
- * kvfree_sensitive - Free a data object containing sensitive information.
- * @addr: address of the data object to be freed.
- * @len: length of the data object.
- *
- * Use the special memzero_explicit() function to clear the content of a
- * kvmalloc'ed object containing sensitive data to make sure that the
- * compiler won't optimize out the data clearing.
- */
-void kvfree_sensitive(const void *addr, size_t len)
-{
-	if (likely(!ZERO_OR_NULL_PTR(addr))) {
-		memzero_explicit((void *)addr, len);
-		kvfree(addr);
-	}
-}
-EXPORT_SYMBOL(kvfree_sensitive);
-
 static inline void *__page_rmapping(struct page *page)
 {
 	unsigned long mapping;
@@ -469,7 +482,7 @@ bool page_mapped(struct page *page)
 		return true;
 	if (PageHuge(page))
 		return false;
-	for (i = 0; i < (1 << compound_order(page)); i++) {
+	for (i = 0; i < hpage_nr_pages(page); i++) {
 		if (atomic_read(&page[i]._mapcount) >= 0)
 			return true;
 	}
@@ -659,7 +672,8 @@ int __vm_enough_memory(struct mm_struct *mm, long pages, int cap_sys_admin)
 		 * Part of the kernel memory, which can be released
 		 * under memory pressure.
 		 */
-		free += global_node_page_state(NR_KERNEL_MISC_RECLAIMABLE);
+		free += global_node_page_state(
+			NR_INDIRECTLY_RECLAIMABLE_BYTES) >> PAGE_SHIFT;
 
 		/*
 		 * Leave reserved pages. The pages are not for anonymous pages.

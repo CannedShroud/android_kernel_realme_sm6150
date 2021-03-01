@@ -498,9 +498,7 @@ manner. The codes are the following:
 
 Note that there is no guarantee that every flag and associated mnemonic will
 be present in all further kernel releases. Things get changed, the flags may
-be vanished or the reverse -- new added. Interpretation of their meaning
-might change in future as well. So each consumer of these flags has to
-follow each specific kernel version for the exact semantic.
+be vanished or the reverse -- new added.
 
 The "Name" field will only be present on a mapping that has been named by
 userspace, and will show the name passed in by userspace.
@@ -882,7 +880,6 @@ Writeback:           0 kB
 AnonPages:      861800 kB
 Mapped:         280372 kB
 Shmem:             644 kB
-KReclaimable:   168048 kB
 Slab:           284364 kB
 SReclaimable:   159856 kB
 SUnreclaim:     124508 kB
@@ -946,9 +943,6 @@ AnonHugePages: Non-file backed huge pages mapped into userspace page tables
 ShmemHugePages: Memory used by shared memory (shmem) and tmpfs allocated
               with huge pages
 ShmemPmdMapped: Shared memory mapped into userspace with huge pages
-KReclaimable: Kernel allocations that the kernel will attempt to reclaim
-              under memory pressure. Includes SReclaimable (below), and other
-              direct allocations with a shrinker.
         Slab: in-kernel data structures cache
 SReclaimable: Part of Slab, that might be reclaimed, such as caches
   SUnreclaim: Part of Slab, that cannot be reclaimed on memory pressure

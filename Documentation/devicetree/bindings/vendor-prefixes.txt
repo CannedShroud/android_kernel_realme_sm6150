@@ -31,7 +31,6 @@ andestech	Andes Technology Corporation
 android	Google
 apm	Applied Micro Circuits Corporation (APM)
 aptina	Aptina Imaging
-aquantia	Aquantia Corporation
 arasan	Arasan Chip Systems
 arctic	Arctic Sand
 aries	Aries Embedded GmbH
@@ -390,4 +389,3 @@ zidoo	Shenzhen Zidoo Technology Co., Ltd.
 zii	Zodiac Inflight Innovations
 zte	ZTE Corp.
 zyxel	ZyXEL Communications Corp.
-inven   InvenSense, Inc.

@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,7 +20,6 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 #include <linux/thermal.h>
-#include "thermal_core.h"
 #include "tsens.h"
 #include "qcom/qti_virtual_sensor.h"
 
@@ -96,9 +95,6 @@ static const struct of_device_id tsens_table[] = {
 	},
 	{	.compatible = "qcom,qcs405-tsens",
 		.data = &data_tsens14xx_405,
-	},
-	{	.compatible = "qcom,mdm9607-tsens",
-		.data = &data_tsens14xx_9607,
 	},
 	{}
 };
@@ -190,8 +186,6 @@ static int get_device_tree_data(struct platform_device *pdev,
 			}
 		}
 	}
-	tmdev->tsens_reinit_wa =
-			of_property_read_bool(of_node, "tsens-reinit-wa");
 
 	return rc;
 }
@@ -231,31 +225,13 @@ static int tsens_thermal_zone_register(struct tsens_device *tmdev)
 
 static int tsens_tm_remove(struct platform_device *pdev)
 {
+	struct tsens_device *tmdev = platform_get_drvdata(pdev);
+
+	if (tmdev)
+		list_del(&tmdev->list);
 	platform_set_drvdata(pdev, NULL);
 
 	return 0;
-}
-
-static void tsens_therm_fwk_notify(struct work_struct *work)
-{
-	int i, rc, temp;
-	struct tsens_device *tmdev =
-		container_of(work, struct tsens_device, therm_fwk_notify);
-
-	TSENS_DBG(tmdev, "Controller %pK\n", &tmdev->phys_addr_tm);
-	for (i = 0; i < TSENS_MAX_SENSORS; i++) {
-		if (tmdev->ops->sensor_en(tmdev, i)) {
-			rc = tsens_get_temp(&tmdev->sensor[i], &temp);
-			if (rc) {
-				pr_err("%s: Error:%d reading temp sensor:%d\n",
-					__func__, rc, i);
-				continue;
-			}
-			TSENS_DBG(tmdev, "Calling trip_temp for sensor %d\n",
-					i);
-			of_thermal_handle_trip(tmdev->sensor[i].tzd);
-		}
-	}
 }
 
 int tsens_tm_probe(struct platform_device *pdev)
@@ -286,17 +262,6 @@ int tsens_tm_probe(struct platform_device *pdev)
 		pr_err("Error initializing TSENS controller\n");
 		return rc;
 	}
-
-	snprintf(tsens_name, sizeof(tsens_name), "tsens_wq_%pa",
-		&tmdev->phys_addr_tm);
-
-	tmdev->tsens_reinit_work = alloc_workqueue(tsens_name,
-		WQ_HIGHPRI, 0);
-	if (!tmdev->tsens_reinit_work) {
-		rc = -ENOMEM;
-		return rc;
-	}
-	INIT_WORK(&tmdev->therm_fwk_notify, tsens_therm_fwk_notify);
 
 	rc = tsens_thermal_zone_register(tmdev);
 	if (rc) {
@@ -350,6 +315,7 @@ static struct platform_driver tsens_tm_driver = {
 		.name = "msm-tsens",
 		.owner = THIS_MODULE,
 		.of_match_table = tsens_table,
+		.suppress_bind_attrs = true,
 	},
 };
 

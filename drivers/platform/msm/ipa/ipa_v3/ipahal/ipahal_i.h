@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -73,8 +73,6 @@
 	(kzalloc((__size), ((__is_atomic_ctx) ? GFP_ATOMIC : GFP_KERNEL)))
 
 #define IPAHAL_IPC_LOG_PAGES 50
-
-#define IPAHAL_PKT_STATUS_FLTRT_RULE_MISS_ID 0x3ff
 
 /*
  * struct ipahal_context - HAL global context data
@@ -615,16 +613,12 @@ struct ipa_pkt_status_hw {
 /* Headers and processing context H/W structures and definitions */
 
 /* uCP command numbers */
-#define IPA_HDR_UCP_802_3_TO_802_3		6
-#define IPA_HDR_UCP_802_3_TO_ETHII		7
-#define IPA_HDR_UCP_ETHII_TO_802_3		8
-#define IPA_HDR_UCP_ETHII_TO_ETHII		9
-#define IPA_HDR_UCP_L2TP_HEADER_ADD		10
-#define IPA_HDR_UCP_L2TP_HEADER_REMOVE		11
-#define IPA_HDR_UCP_L2TP_UDP_HEADER_ADD		12
-#define IPA_HDR_UCP_L2TP_UDP_HEADER_REMOVE	13
-#define IPA_HDR_UCP_ETHII_TO_ETHII_EX		14
-#define IPA_HDR_UCP_SET_DSCP		16
+#define IPA_HDR_UCP_802_3_TO_802_3 6
+#define IPA_HDR_UCP_802_3_TO_ETHII 7
+#define IPA_HDR_UCP_ETHII_TO_802_3 8
+#define IPA_HDR_UCP_ETHII_TO_ETHII 9
+#define IPA_HDR_UCP_L2TP_HEADER_ADD 10
+#define IPA_HDR_UCP_L2TP_HEADER_REMOVE 11
 
 /* Processing context TLV type */
 #define IPA_PROC_CTX_TLV_TYPE_END 0
@@ -734,41 +728,6 @@ struct ipa_hw_hdr_proc_ctx_add_l2tp_hdr_cmd_seq {
  */
 struct ipa_hw_hdr_proc_ctx_remove_l2tp_hdr_cmd_seq {
 	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
-	struct ipa_hw_hdr_proc_ctx_l2tp_remove_hdr l2tp_params;
-	struct ipa_hw_hdr_proc_ctx_tlv end;
-};
-
-/**
- * struct ipa_hw_hdr_proc_ctx_add_hdr_ex -
- * HW structure of IPA processing context - add generic header
- * @tlv: IPA processing context TLV
- * @params: generic eth2 to eth2 parameters
- */
-struct ipa_hw_hdr_proc_ctx_add_hdr_ex {
-	struct ipa_hw_hdr_proc_ctx_tlv tlv;
-	struct ipa_eth_II_to_eth_II_ex_procparams params;
-};
-
-/**
- * struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq_ex -
- * IPA processing context header - process command sequence
- * @hdr_add: add header command
- * @params: params for header generic header add
- * @end: tlv end command (cmd.type must be 0)
- */
-struct ipa_hw_hdr_proc_ctx_add_hdr_cmd_seq_ex {
-	struct ipa_hw_hdr_proc_ctx_hdr_add hdr_add;
-	struct ipa_hw_hdr_proc_ctx_add_hdr_ex hdr_add_ex;
-	struct ipa_hw_hdr_proc_ctx_tlv end;
-};
-
-/**
- * struct ipa_hw_hdr_proc_ctx_remove_l2tp_udp_hdr_cmd_seq -
- * IPA processing context header - process command sequence
- * @l2tp_params: l2tp params for header removal
- * @end: tlv end command (cmd.type must be 0)
- */
-struct ipa_hw_hdr_proc_ctx_remove_l2tp_udp_hdr_cmd_seq {
 	struct ipa_hw_hdr_proc_ctx_l2tp_remove_hdr l2tp_params;
 	struct ipa_hw_hdr_proc_ctx_tlv end;
 };

@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,7 +32,7 @@
 #define GSI_EVT_RING_MAX  24
 #define GSI_NO_EVT_ERINDEX 31
 
-#define gsi_readl(c)	(readl(c))
+#define gsi_readl(c)	({ u32 __v = readl_relaxed(c); __iormb(); __v; })
 #define gsi_writel(v, c)	({ __iowmb(); writel_relaxed((v), (c)); })
 
 #define GSI_IPC_LOGGING(buf, fmt, args...) \
@@ -90,7 +90,6 @@ enum gsi_chan_state {
 	GSI_CHAN_STATE_STARTED = 0x2,
 	GSI_CHAN_STATE_STOPPED = 0x3,
 	GSI_CHAN_STATE_STOP_IN_PROC = 0x4,
-	GSI_CHAN_STATE_FLOW_CONTROL = 0x5,
 	GSI_CHAN_STATE_ERROR = 0xf
 };
 
@@ -125,26 +124,14 @@ struct gsi_chan_stats {
 	unsigned long invalid_tre_error;
 	unsigned long poll_ok;
 	unsigned long poll_empty;
-	unsigned long userdata_in_use;
 	struct gsi_chan_dp_stats dp;
-};
-
-/**
- * struct gsi_user_data - user_data element pointed by the TRE
- * @valid: valid to be cleaned. if its true that means it is being used.
- *	false means its free to overwrite
- * @p: pointer to the user data array element
- */
-struct gsi_user_data {
-	bool valid;
-	void *p;
 };
 
 struct gsi_chan_ctx {
 	struct gsi_chan_props props;
 	enum gsi_chan_state state;
 	struct gsi_ring_ctx ring;
-	struct gsi_user_data *user_data;
+	void **user_data;
 	struct gsi_evt_ctx *evtr;
 	struct mutex mlock;
 	struct completion compl;
@@ -201,7 +188,6 @@ struct ch_debug_stats {
 
 struct gsi_generic_ee_cmd_debug_stats {
 	unsigned long halt_channel;
-	unsigned long flow_ctrl_channel;
 };
 
 struct gsi_ctx {
@@ -234,8 +220,6 @@ struct gsi_ctx {
 	u32 intcntrlr_mem_size;
 	irq_handler_t intcntrlr_gsi_isr;
 	irq_handler_t intcntrlr_client_isr;
-
-	atomic_t num_unclock_irq;
 };
 
 enum gsi_re_type {
@@ -332,8 +316,6 @@ enum gsi_evt_ch_cmd_opcode {
 enum gsi_generic_ee_cmd_opcode {
 	GSI_GEN_EE_CMD_HALT_CHANNEL = 0x1,
 	GSI_GEN_EE_CMD_ALLOC_CHANNEL = 0x2,
-	GSI_GEN_EE_CMD_ENABLE_FLOW_CHANNEL = 0x3,
-	GSI_GEN_EE_CMD_DISABLE_FLOW_CHANNEL = 0x4,
 };
 
 enum gsi_generic_ee_cmd_return_code {

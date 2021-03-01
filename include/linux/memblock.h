@@ -89,10 +89,6 @@ int memblock_clear_hotplug(phys_addr_t base, phys_addr_t size);
 int memblock_mark_mirror(phys_addr_t base, phys_addr_t size);
 int memblock_mark_nomap(phys_addr_t base, phys_addr_t size);
 int memblock_clear_nomap(phys_addr_t base, phys_addr_t size);
-#ifdef CONFIG_MEMORY_HOTPLUG
-int memblock_dump_aligned_blocks_addr(char *buf);
-int memblock_dump_aligned_blocks_num(char *buf);
-#endif
 ulong choose_memblock_flags(void);
 
 /* Low level functions */
@@ -115,7 +111,7 @@ void __next_reserved_mem_region(u64 *idx, phys_addr_t *out_start,
 
 void __memblock_free_early(phys_addr_t base, phys_addr_t size);
 void __memblock_free_late(phys_addr_t base, phys_addr_t size);
-void create_pgtable_mapping(phys_addr_t start, phys_addr_t end);
+
 /**
  * for_each_mem_range - iterate through memblock areas from type_a and not
  * included in type_b. Or just type_a if type_b is NULL.
@@ -302,7 +298,6 @@ static inline bool memblock_bottom_up(void)
 /* Flags for memblock_alloc_base() amd __memblock_alloc_base() */
 #define MEMBLOCK_ALLOC_ANYWHERE	(~(phys_addr_t)0)
 #define MEMBLOCK_ALLOC_ACCESSIBLE	0
-#define MEMBLOCK_ALLOC_KASAN		1
 
 phys_addr_t __init memblock_alloc_range(phys_addr_t size, phys_addr_t align,
 					phys_addr_t start, phys_addr_t end,
@@ -399,11 +394,6 @@ static inline unsigned long memblock_region_reserved_end_pfn(const struct memblo
 	for (idx = 0, rgn = &memblock_type->regions[0];			\
 	     idx < memblock_type->cnt;					\
 	     idx++, rgn = &memblock_type->regions[idx])
-#define for_each_memblock_rev(memblock_type, region)	\
-	for (region = memblock.memblock_type.regions + \
-			memblock.memblock_type.cnt - 1;	\
-	     region >= memblock.memblock_type.regions;	\
-	     region--)
 
 #ifdef CONFIG_MEMTEST
 extern void early_memtest(phys_addr_t start, phys_addr_t end);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -41,7 +41,6 @@
 #include <linux/kthread.h>
 #include <uapi/linux/sched/types.h>
 #include <drm/drm_of.h>
-#include <soc/qcom/boot_stats.h>
 #include "msm_drv.h"
 #include "msm_debugfs.h"
 #include "msm_fence.h"
@@ -562,14 +561,6 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 	if (ret)
 		goto fail;
 
-	if (!dev->dma_parms) {
-		dev->dma_parms = devm_kzalloc(dev, sizeof(*dev->dma_parms),
-					      GFP_KERNEL);
-		if (!dev->dma_parms)
-			return -ENOMEM;
-	}
-	dma_set_max_seg_size(dev, DMA_BIT_MASK(32));
-
 	switch (get_mdp_ver(pdev)) {
 	case KMS_MDP4:
 		kms = mdp4_kms_init(ddev);
@@ -751,7 +742,16 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 	if (ret)
 		goto fail;
 
-	ret = sde_dbg_debugfs_register(dev);
+	priv->debug_root = debugfs_create_dir("debug",
+					ddev->primary->debugfs_root);
+	if (IS_ERR_OR_NULL(priv->debug_root)) {
+		pr_err("debugfs_root create_dir fail, error %ld\n",
+		       PTR_ERR(priv->debug_root));
+		priv->debug_root = NULL;
+		goto fail;
+	}
+
+	ret = sde_dbg_debugfs_register(priv->debug_root);
 	if (ret) {
 		dev_err(dev, "failed to reg sde dbg debugfs: %d\n", ret);
 		goto fail;
@@ -767,7 +767,6 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 	}
 
 	drm_kms_helper_poll_init(ddev);
-	place_marker("M - DISPLAY Driver Ready");
 
 	return 0;
 
@@ -1270,8 +1269,7 @@ static int msm_drm_object_supports_event(struct drm_device *dev,
 	int ret = -EINVAL;
 	struct drm_mode_object *arg_obj;
 
-	arg_obj = drm_mode_object_find(dev, NULL,
-				req->object_id, req->object_type);
+	arg_obj = drm_mode_object_find(dev, req->object_id, req->object_type);
 	if (!arg_obj)
 		return -ENOENT;
 
@@ -1298,8 +1296,7 @@ static int msm_register_event(struct drm_device *dev,
 	struct msm_kms *kms = priv->kms;
 	struct drm_mode_object *arg_obj;
 
-	arg_obj = drm_mode_object_find(dev, NULL,
-				req->object_id, req->object_type);
+	arg_obj = drm_mode_object_find(dev, req->object_id, req->object_type);
 	if (!arg_obj)
 		return -ENOENT;
 
@@ -1380,27 +1377,24 @@ static int msm_ioctl_register_event(struct drm_device *dev, void *data,
 	 * calls add to client list and return.
 	 */
 	count = msm_event_client_count(dev, req_event, false);
-	if (count) {
-		/* Add current client to list */
-		spin_lock_irqsave(&dev->event_lock, flag);
-		list_add_tail(&client->base.link, &priv->client_event_list);
-		spin_unlock_irqrestore(&dev->event_lock, flag);
+	/* Add current client to list */
+	spin_lock_irqsave(&dev->event_lock, flag);
+	list_add_tail(&client->base.link, &priv->client_event_list);
+	spin_unlock_irqrestore(&dev->event_lock, flag);
+
+	if (count)
 		return 0;
-	}
 
 	ret = msm_register_event(dev, req_event, file, true);
 	if (ret) {
 		DRM_ERROR("failed to enable event %x object %x object id %d\n",
 			req_event->event, req_event->object_type,
 			req_event->object_id);
-		kfree(client);
-	} else {
-		/* Add current client to list */
 		spin_lock_irqsave(&dev->event_lock, flag);
-		list_add_tail(&client->base.link, &priv->client_event_list);
+		list_del(&client->base.link);
 		spin_unlock_irqrestore(&dev->event_lock, flag);
+		kfree(client);
 	}
-
 	return ret;
 }
 
@@ -1565,7 +1559,7 @@ int msm_ioctl_rmfb2(struct drm_device *dev, void *data,
 	if (!drm_core_check_feature(dev, DRIVER_MODESET))
 		return -EINVAL;
 
-	fb = drm_framebuffer_lookup(dev, file_priv, *id);
+	fb = drm_framebuffer_lookup(dev, *id);
 	if (!fb)
 		return -ENOENT;
 
@@ -1597,7 +1591,7 @@ EXPORT_SYMBOL(msm_ioctl_rmfb2);
  * @file_priv: drm file for the ioctl call
  *
  */
-static int msm_ioctl_power_ctrl(struct drm_device *dev, void *data,
+int msm_ioctl_power_ctrl(struct drm_device *dev, void *data,
 			struct drm_file *file_priv)
 {
 	struct msm_file_private *ctx = file_priv->driver_priv;
@@ -1980,33 +1974,6 @@ msm_gem_smmu_address_space_get(struct drm_device *dev,
 	return funcs->get_address_space(priv->kms, domain);
 }
 
-int msm_get_mixer_count(struct msm_drm_private *priv,
-		const struct drm_display_mode *mode,
-		u32 max_mixer_width, u32 *num_lm)
-{
-	struct msm_kms *kms;
-	const struct msm_kms_funcs *funcs;
-
-	if (!priv) {
-		DRM_ERROR("invalid drm private struct");
-		return -EINVAL;
-	}
-
-	kms = priv->kms;
-	if (!kms) {
-		DRM_ERROR("invalid msm kms struct");
-		return -EINVAL;
-	}
-
-	funcs = kms->funcs;
-	if (!funcs || !funcs->get_mixer_count) {
-		DRM_ERROR("invlaid function pointers");
-		return -EINVAL;
-	}
-
-	return funcs->get_mixer_count(priv->kms, mode,
-			max_mixer_width, num_lm);
-}
 /*
  * We don't know what's the best binding to link the gpu with the drm device.
  * Fow now, we just hunt for all the possible gpus that we support, and add them
@@ -2035,8 +2002,7 @@ static int add_gpu_components(struct device *dev,
 	if (!np)
 		return 0;
 
-	if (of_device_is_available(np))
-		drm_of_component_match_add(dev, matchptr, compare_of, np);
+	drm_of_component_match_add(dev, matchptr, compare_of, np);
 
 	of_node_put(np);
 
@@ -2074,24 +2040,13 @@ static int msm_pdev_probe(struct platform_device *pdev)
 
 	ret = add_gpu_components(&pdev->dev, &match);
 	if (ret)
-		goto fail;
+		return ret;
 
 	if (!match)
 		return -ENODEV;
 
-	device_enable_async_suspend(&pdev->dev);
-
 	pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
-
-	ret = component_master_add_with_match(&pdev->dev, &msm_drm_ops, match);
-	if (ret)
-		goto fail;
-
-	return 0;
-
-fail:
-	of_platform_depopulate(&pdev->dev);
-	return ret;
+	return component_master_add_with_match(&pdev->dev, &msm_drm_ops, match);
 }
 
 static int msm_pdev_remove(struct platform_device *pdev)

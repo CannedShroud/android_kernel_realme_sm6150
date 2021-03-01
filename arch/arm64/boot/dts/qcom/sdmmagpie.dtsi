@@ -1,4 +1,4 @@
-/* Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -62,16 +62,19 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <1024>;
 			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+			cache-size = <0x8000>;
 			next-level-cache = <&L2_0>;
 			qcom,lmh-dcvs = <&lmh_dcvs0>;
 			#cooling-cells = <2>;
 			L2_0: l2-cache {
 			      compatible = "arm,arch-cache";
+			      cache-size = <0x20000>;
 			      cache-level = <2>;
 			      next-level-cache = <&L3_0>;
 
 				L3_0: l3-cache {
 				      compatible = "arm,arch-cache";
+				      cache-size = <0x100000>;
 				      cache-level = <3>;
 				};
 			};
@@ -98,11 +101,13 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <1024>;
 			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+			cache-size = <0x8000>;
 			next-level-cache = <&L2_100>;
 			qcom,lmh-dcvs = <&lmh_dcvs0>;
 			#cooling-cells = <2>;
 			L2_100: l2-cache {
 			      compatible = "arm,arch-cache";
+			      cache-size = <0x20000>;
 			      cache-level = <2>;
 			      next-level-cache = <&L3_0>;
 			};
@@ -130,11 +135,13 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <1024>;
 			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+			cache-size = <0x8000>;
 			next-level-cache = <&L2_200>;
 			qcom,lmh-dcvs = <&lmh_dcvs0>;
 			#cooling-cells = <2>;
 			L2_200: l2-cache {
 			      compatible = "arm,arch-cache";
+			      cache-size = <0x20000>;
 			      cache-level = <2>;
 			      next-level-cache = <&L3_0>;
 			};
@@ -161,11 +168,13 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <1024>;
 			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+			cache-size = <0x8000>;
 			next-level-cache = <&L2_300>;
 			qcom,lmh-dcvs = <&lmh_dcvs0>;
 			#cooling-cells = <2>;
 			L2_300: l2-cache {
 			      compatible = "arm,arch-cache";
+			      cache-size = <0x20000>;
 			      cache-level = <2>;
 			      next-level-cache = <&L3_0>;
 			};
@@ -192,11 +201,13 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <1024>;
 			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+			cache-size = <0x8000>;
 			next-level-cache = <&L2_400>;
 			qcom,lmh-dcvs = <&lmh_dcvs0>;
 			#cooling-cells = <2>;
 			L2_400: l2-cache {
 			      compatible = "arm,arch-cache";
+			      cache-size = <0x20000>;
 			      cache-level = <2>;
 			      next-level-cache = <&L3_0>;
 			};
@@ -223,11 +234,13 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <1024>;
 			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+			cache-size = <0x8000>;
 			next-level-cache = <&L2_500>;
 			qcom,lmh-dcvs = <&lmh_dcvs0>;
 			#cooling-cells = <2>;
 			L2_500: l2-cache {
 			      compatible = "arm,arch-cache";
+			      cache-size = <0x20000>;
 			      cache-level = <2>;
 			      next-level-cache = <&L3_0>;
 			};
@@ -254,11 +267,13 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <1740>;
 			sched-energy-costs = <&CPU_COST_1 &CLUSTER_COST_1>;
+			cache-size = <0x10000>;
 			next-level-cache = <&L2_600>;
 			qcom,lmh-dcvs = <&lmh_dcvs1>;
 			#cooling-cells = <2>;
 			L2_600: l2-cache {
 			      compatible = "arm,arch-cache";
+			      cache-size = <0x40000>;
 			      cache-level = <2>;
 			      next-level-cache = <&L3_0>;
 			      qcom,dump-size = <0x48000>;
@@ -294,11 +309,13 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <1740>;
 			sched-energy-costs = <&CPU_COST_1 &CLUSTER_COST_1>;
+			cache-size = <0x10000>;
 			next-level-cache = <&L2_700>;
 			qcom,lmh-dcvs = <&lmh_dcvs1>;
 			#cooling-cells = <2>;
 			L2_700: l2-cache {
 			      compatible = "arm,arch-cache";
+			      cache-size = <0x40000>;
 			      cache-level = <2>;
 			      next-level-cache = <&L3_0>;
 			      qcom,dump-size = <0x48000>;
@@ -469,7 +486,7 @@
 			compatible = "android,firmware";
 			vbmeta {
 				compatible = "android,vbmeta";
-				parts = "vbmeta,boot,system,vendor,dtbo";
+				parts = "vbmeta,boot,system,vendor,dtbo,recovery"; /*xing.xiong@BSP.Kernel.Driver, 2019/04/02, Add recovery verify*/
 			};
 			fstab {
 				compatible = "android,fstab";
@@ -478,7 +495,7 @@
 					dev = "/dev/block/platform/soc/1d84000.ufshc/by-name/vendor";
 					type = "ext4";
 					mnt_flags = "ro,barrier=1,discard";
-					fsmgr_flags = "wait,slotselect,avb";
+					fsmgr_flags = "wait,avb"; /*xing.xiong@BSP.Kernel.Driver, 2019/04/02, Modify change from "wait,slotselect,avb" -> "wait,avb"*/
 					status = "ok";
 				};
 			};
@@ -529,55 +546,55 @@
 		pil_modem_mem: modem_region@8b000000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x8b000000 0 0x8400000>;
+			reg = <0 0x8b000000 0 0x7e00000>;
 		};
 
-		pil_video_mem: pil_video_region@93400000 {
+		pil_video_mem: pil_video_region@92e00000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x93400000 0 0x500000>;
+			reg = <0 0x92e00000 0 0x500000>;
 		};
 
-		pil_cdsp_mem: cdsp_regions@93900000 {
+		pil_cdsp_mem: cdsp_regions@93300000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x93900000 0 0x1e00000>;
+			reg = <0 0x93300000 0 0x1e00000>;
 		};
 
-		pil_adsp_mem: pil_adsp_region@95700000 {
+		pil_adsp_mem: pil_adsp_region@95100000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x95700000 0 0x1e00000>;
+			reg = <0 0x95100000 0 0x1e00000>;
 		};
 
-		wlan_msa_mem: wlan_msa_region@97500000 {
+		wlan_msa_mem: wlan_msa_region@96f00000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x97500000 0 0x180000>;
+			reg = <0 0x96f00000 0 0x180000>;
 		};
 
-		npu_mem: npu_region@97680000 {
+		npu_mem: npu_region@97080000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x97680000 0 0x80000>;
+			reg = <0 0x97080000 0 0x80000>;
 		};
 
-		pil_ipa_fw_mem: ips_fw_region@97700000 {
+		pil_ipa_fw_mem: ips_fw_region@97100000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x97700000 0 0x10000>;
+			reg = <0 0x97100000 0 0x10000>;
 		};
 
-		pil_ipa_gsi_mem: ipa_gsi_region@97710000 {
+		pil_ipa_gsi_mem: ipa_gsi_region@97110000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x97710000 0 0x5000>;
+			reg = <0 0x97110000 0 0x5000>;
 		};
 
-		pil_gpu_mem: gpu_region@97715000 {
+		pil_gpu_mem: gpu_region@97115000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x97715000 0 0x2000>;
+			reg = <0 0x97115000 0 0x2000>;
 		};
 
 		qseecom_mem: qseecom_region@9e400000 {
@@ -633,17 +650,12 @@
 		};
 
 		cont_splash_memory: cont_splash_region@9c000000 {
-			reg = <0x0 0x9c000000 0x0 0x01700000>;
+			reg = <0x0 0x9c000000 0x0 0x02300000>;
 			label = "cont_splash_region";
 		};
 
-		disp_rdump_memory: disp_rdump_region@9c000000 {
-			reg = <0x0 0x9c000000 0x0 0x01800000>;
-			label = "disp_rdump_region";
-		};
-
-		dfps_data_memory: dfps_data_region@9d700000 {
-			reg = <0x0 0x9d700000 0x0 0x0100000>;
+		dfps_data_memory: dfps_data_region@9e300000 {
+			reg = <0x0 0x9e300000 0x0 0x0100000>;
 			label = "dfps_data_region";
 		};
 
@@ -1470,7 +1482,6 @@
 			    "tsens_tm_physical";
 		interrupts = <0 506 0>, <0 508 0>;
 		interrupt-names = "tsens-upper-lower", "tsens-critical";
-		tsens-reinit-wa;
 		#thermal-sensor-cells = <1>;
 	};
 
@@ -1482,7 +1493,6 @@
 			    "tsens_tm_physical";
 		interrupts = <0 507 0>, <0 509 0>;
 		interrupt-names = "tsens-upper-lower", "tsens-critical";
-		tsens-reinit-wa;
 		#thermal-sensor-cells = <1>;
 	};
 
@@ -2121,12 +2131,13 @@
 
 	sdhc_1: sdhci@7c4000 {
 		compatible = "qcom,sdhci-msm-v5";
-		reg = <0x7c4000 0x1000>, <0x7c5000 0x1000>, <0x7C8000 0x8000>;
-		reg-names = "hc_mem", "cmdq_mem", "cmdq_ice";
+		reg = <0x7c4000 0x1000>, <0x7c5000 0x1000>;
+		reg-names = "hc_mem", "cmdq_mem";
 
 		interrupts = <IRQ_TYPE_NONE 641 IRQ_TYPE_NONE>,
 					<IRQ_TYPE_NONE 644 IRQ_TYPE_NONE>;
 		interrupt-names = "hc_irq", "pwr_irq";
+		sdhc-msm-crypto = <&sdcc1_ice>;
 
 		qcom,bus-width = <8>;
 		qcom,large-address-bus;
@@ -2338,11 +2349,11 @@
 
 	ufshc_mem: ufshc@1d84000 {
 		compatible = "qcom,ufshc";
-		reg = <0x1d84000 0x3000>, <0x1d90000 0x8000>;
-		reg-names = "ufs_mem", "ufs_ice";
+		reg = <0x1d84000 0x3000>;
 		interrupts = <0 265 0>;
 		phys = <&ufsphy_mem>;
 		phy-names = "ufsphy";
+		ufs-qcom-crypto = <&ufs_ice>;
 
 		lanes-per-direction = <1>;
 		dev-ref-clk-freq = <0>; /* 19.2 MHz */
@@ -2477,6 +2488,20 @@
 		qcom,client-id = <0x00000001>;
 		qcom,guard-memory;
 	};
+
+    //#ifdef VENDOR_EDIT
+    //Zhengpeng.Tan@NW.AP.NV.892767, 2016/11/30
+    //#ifdef FEATURE_OPPO_NV_BACKUP
+    //add for creating a shared memory with uio for nv backup and restore
+    qcom,oembackup_sharedmem@0 {
+        compatible = "qcom,sharedmem-uio";
+        reg = <0x0 0x00100000>;
+        reg-names = "oembackup";
+        qcom,client-id = <0x00000004>;
+		qcom,guard-memory;
+    };
+    //#endif /* FEATURE_OPPO_NV_BACKUP */
+    //#endif /* VENDOR_EDIT */
 
 	qcom_cedev: qcedev@1de0000 {
 		compatible = "qcom,qcedev";
@@ -2630,15 +2655,7 @@
 		qcom,smem-id = <421>;
 		qcom,signal-aop;
 		qcom,minidump-id = <3>;
-		qcom,aux-minidump-ids = <4>;
 		qcom,complete-ramdump;
-
-		qcom,msm-bus,name = "pil-modem";
-		qcom,msm-bus,num-cases = <2>;
-		qcom,msm-bus,num-paths = <1>;
-		qcom,msm-bus,vectors-KBps =
-			<129 512 0 0>,
-			<129 512 0 7000000>;
 
 		/* Inputs from mss */
 		interrupts-extended = <&pdc GIC_SPI 266 IRQ_TYPE_EDGE_RISING>,
@@ -2726,7 +2743,6 @@
 		vdd-1.8-xo-supply = <&pm6150l_l1>;
 		vdd-1.3-rfa-supply = <&pm6150l_l2>;
 		vdd-3.3-ch0-supply = <&pm6150l_l10>;
-		vdd-3.3-ch1-supply = <&pm6150l_l11>;
 		qcom,vdd-cx-mx-config = <640000 640000>;
 		qcom,smp2p_map_wlan_1_in {
 			interrupts-extended = <&smp2p_wlan_1_in 0 0>,
@@ -3321,6 +3337,127 @@
 		pinctrl-0 = <&fsa_usbc_ana_en>;
 	};
 };
+
+//#ifdef VENDOR_EDIT
+/* Yichun.Chen  PSW.BSP.CHG  2019-04-08  for charge */
+&qupv3_se9_i2c {
+	status = "ok";
+
+	bq27541-battery@55 {
+		status = "ok";
+		compatible = "oppo,bq27541-battery";
+		reg = <0x55>;
+		qcom,modify-soc-smooth;
+	};
+
+/*
+	oppo_short-ic@58 {
+		status = "disabled";
+		compatible = "oppo,oppo_short-ic";
+		reg = <0x58>;
+		qcom,modify-soc-smooth;
+	};
+*/
+
+	stm8s_fastcg@26 {
+		status = "ok";
+		compatible = "oppo,stm8s-fastcg";
+		reg = <0x26>;
+		qcom,oppo_batt_4400mv;
+		qcom,vooc-fw-type = <6>;
+//		qcom,vooc_fw_update_newmethod;
+
+		pinctrl-names = "switch1_act_switch2_act", "switch1_sleep_switch2_sleep",
+				"switch1_act_switch3_act", "switch1_sleep_switch3_sleep",
+				"switch1_act_switch2_sleep", "switch1_sleep_switch2_act",
+				"clock_active","clock_sleep",
+				"data_active","data_sleep",
+				"reset_active","reset_sleep";
+		pinctrl-0 = <&charging_switch1_active>;
+		pinctrl-1 = <&charging_switch1_sleep >;
+		pinctrl-2 = <&charging_switch1_active>;
+		pinctrl-3 = <&charging_switch1_sleep >;
+		pinctrl-4 = <&charging_switch1_active>;
+		pinctrl-5 = <&charging_switch1_sleep>;
+		pinctrl-6 = <&charging_clock_active >;
+		pinctrl-7 = <&charging_clock_sleep >;
+		pinctrl-8 = <&charging_data_active >;
+		pinctrl-9 = <&charging_data_sleep >;
+		pinctrl-10 = <&charging_reset_active >;
+		pinctrl-11 = <&charging_reset_sleep >;
+
+		qcom,charging_switch1-gpio = <&pm6150_gpios 9 0x00>;
+		qcom,charging_reset-gpio = <&tlmm 29 0x00>;
+		qcom,charging_clock-gpio = <&tlmm 21 0x00>;
+		qcom,charging_data-gpio = <&tlmm 26 0x00>;
+	};
+
+/*
+	n76e_fastcg@52 {
+		status = "disabled";
+		compatible = "oppo,n76e-fastcg";
+		reg = <0x52 0>;
+		qcom,oppo_batt_4400mv;
+		qcom,vooc-fw-type = <1>;
+//		qcom,vooc_fw_update_newmethod;
+
+		pinctrl-names = "switch1_act_switch2_act", "switch1_sleep_switch2_sleep",
+				"switch1_act_switch3_act", "switch1_sleep_switch3_sleep",
+				"switch1_act_switch2_sleep", "switch1_sleep_switch2_act",
+				"clock_active","clock_sleep",
+				"data_active","data_sleep",
+				"reset_active","reset_sleep";
+		pinctrl-0 = <&charging_switch1_active>;
+		pinctrl-1 = <&charging_switch1_sleep>;
+		pinctrl-2 = <&charging_switch1_active>;
+		pinctrl-3 = <&charging_switch1_sleep>;
+		pinctrl-4 = <&charging_switch1_active>;
+		pinctrl-5 = <&charging_switch1_sleep>;
+		pinctrl-6 = <&charging_clock_active>;
+		pinctrl-7 = <&charging_clock_sleep>;
+		pinctrl-8 = <&charging_data_active>;
+		pinctrl-9 = <&charging_data_sleep>;
+		pinctrl-10 = <&charging_reset_active>;
+		pinctrl-11 = <&charging_reset_sleep>;
+
+		qcom,charging_switch1-gpio = <&pm6150_gpios 9 0x00>;
+		qcom,charging_reset-gpio = <&tlmm 29 0x00>;
+		qcom,charging_clock-gpio = <&tlmm 21 0x00>;
+		qcom,charging_data-gpio = <&tlmm 26 0x00>;
+	};
+
+	pic16f_fastcg@25 {
+		status = "disabled";
+		compatible = "oppo,pic16f-fastcg";
+		reg = <0x25>;
+
+		pinctrl-names = "switch1_act_switch2_act", "switch1_sleep_switch2_sleep",
+				"switch1_act_switch3_act", "switch1_sleep_switch3_sleep",
+				"switch1_act_switch2_sleep", "switch1_sleep_switch2_act",
+				"clock_active","clock_sleep",
+				"data_active","data_sleep",
+				"reset_active","reset_sleep";
+		pinctrl-0 = <&charging_switch1_active>;
+		pinctrl-1 = <&charging_switch1_sleep >;
+		pinctrl-2 = <&charging_switch1_active>;
+		pinctrl-3 = <&charging_switch1_sleep >;
+		pinctrl-4 = <&charging_switch1_active>;
+		pinctrl-5 = <&charging_switch1_sleep>;
+		pinctrl-6 = <&charging_clock_active >;
+		pinctrl-7 = <&charging_clock_sleep >;
+		pinctrl-8 = <&charging_data_active >;
+		pinctrl-9 = <&charging_data_sleep >;
+		pinctrl-10 = <&charging_reset_active >;
+		pinctrl-11 = <&charging_reset_sleep >;
+
+		qcom,charging_switch1-gpio = <&pm6150_gpios 9 0x00>;
+		qcom,charging_reset-gpio = <&tlmm 29 0x00>;
+		qcom,charging_clock-gpio = <&tlmm 21 0x00>;
+		qcom,charging_data-gpio = <&tlmm 26 0x00>;
+	};
+*/
+};
+//#endif
 
 #include "sdmmagpie-audio.dtsi"
 #include "sdmmagpie-gpu.dtsi"

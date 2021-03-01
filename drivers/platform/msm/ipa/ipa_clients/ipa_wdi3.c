@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, 2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -15,7 +15,6 @@
 #include <linux/string.h>
 #include "../ipa_common_i.h"
 #include "../ipa_v3/ipa_pm.h"
-#include "../ipa_v3/ipa_i.h"
 
 #define OFFLOAD_DRV_NAME "ipa_wdi"
 #define IPA_WDI_DBG(fmt, args...) \
@@ -121,29 +120,14 @@ int ipa_wdi_init(struct ipa_wdi_init_in_params *in,
 
 	ipa_wdi_ctx->is_smmu_enabled = out->is_smmu_enabled;
 
-	if (IPA_WDI2_OVER_GSI() || (in->wdi_version == IPA_WDI_3))
-		out->is_over_gsi = true;
-	else
-		out->is_over_gsi = false;
 	return 0;
 }
 EXPORT_SYMBOL(ipa_wdi_init);
-
-int ipa3_get_wdi_version(void)
-{
-	if (ipa_wdi_ctx)
-		return ipa_wdi_ctx->wdi_version;
-	/* default version is IPA_WDI_3 */
-	return IPA_WDI_3;
-}
-EXPORT_SYMBOL(ipa3_get_wdi_version);
 
 int ipa_wdi_cleanup(void)
 {
 	struct ipa_wdi_intf_info *entry;
 	struct ipa_wdi_intf_info *next;
-
-	ipa_uc_dereg_rdyCB();
 
 	/* clear interface list */
 	list_for_each_entry_safe(entry, next,
@@ -266,22 +250,14 @@ int ipa_wdi_reg_intf(struct ipa_wdi_reg_intf_in_params *in)
 
 	memset(tx_prop, 0, sizeof(tx_prop));
 	tx_prop[0].ip = IPA_IP_v4;
-	if (ipa_wdi_ctx->wdi_version == IPA_WDI_3)
-		tx_prop[0].dst_pipe = IPA_CLIENT_WLAN2_CONS;
-	else
-		tx_prop[0].dst_pipe = IPA_CLIENT_WLAN1_CONS;
-
+	tx_prop[0].dst_pipe = IPA_CLIENT_WLAN1_CONS;
 	tx_prop[0].alt_dst_pipe = in->alt_dst_pipe;
 	tx_prop[0].hdr_l2_type = in->hdr_info[0].hdr_type;
 	strlcpy(tx_prop[0].hdr_name, hdr->hdr[IPA_IP_v4].name,
 		sizeof(tx_prop[0].hdr_name));
 
 	tx_prop[1].ip = IPA_IP_v6;
-	if (ipa_wdi_ctx->wdi_version == IPA_WDI_3)
-		tx_prop[1].dst_pipe = IPA_CLIENT_WLAN2_CONS;
-	else
-		tx_prop[1].dst_pipe = IPA_CLIENT_WLAN1_CONS;
-
+	tx_prop[1].dst_pipe = IPA_CLIENT_WLAN1_CONS;
 	tx_prop[1].alt_dst_pipe = in->alt_dst_pipe;
 	tx_prop[1].hdr_l2_type = in->hdr_info[1].hdr_type;
 	strlcpy(tx_prop[1].hdr_name, hdr->hdr[IPA_IP_v6].name,
@@ -290,13 +266,10 @@ int ipa_wdi_reg_intf(struct ipa_wdi_reg_intf_in_params *in)
 	/* populate rx prop */
 	rx.num_props = 2;
 	rx.prop = rx_prop;
+
 	memset(rx_prop, 0, sizeof(rx_prop));
 	rx_prop[0].ip = IPA_IP_v4;
-	if (ipa_wdi_ctx->wdi_version == IPA_WDI_3)
-		rx_prop[0].src_pipe = IPA_CLIENT_WLAN2_PROD;
-	else
-		rx_prop[0].src_pipe = IPA_CLIENT_WLAN1_PROD;
-
+	rx_prop[0].src_pipe = IPA_CLIENT_WLAN1_PROD;
 	rx_prop[0].hdr_l2_type = in->hdr_info[0].hdr_type;
 	if (in->is_meta_data_valid) {
 		rx_prop[0].attrib.attrib_mask |= IPA_FLT_META_DATA;
@@ -305,11 +278,7 @@ int ipa_wdi_reg_intf(struct ipa_wdi_reg_intf_in_params *in)
 	}
 
 	rx_prop[1].ip = IPA_IP_v6;
-	if (ipa_wdi_ctx->wdi_version == IPA_WDI_3)
-		rx_prop[1].src_pipe = IPA_CLIENT_WLAN2_PROD;
-	else
-		rx_prop[1].src_pipe = IPA_CLIENT_WLAN1_PROD;
-
+	rx_prop[1].src_pipe = IPA_CLIENT_WLAN1_PROD;
 	rx_prop[1].hdr_l2_type = in->hdr_info[1].hdr_type;
 	if (in->is_meta_data_valid) {
 		rx_prop[1].attrib.attrib_mask |= IPA_FLT_META_DATA;
@@ -560,10 +529,6 @@ int ipa_wdi_conn_pipes(struct ipa_wdi_conn_in_params *in,
 				in->u_rx.rx.event_ring_doorbell_pa;
 			in_rx.u.ul.rdy_comp_ring_size =
 				in->u_rx.rx.event_ring_size;
-			in_rx.u.ul.is_txr_rn_db_pcie_addr =
-				in->u_rx.rx.is_txr_rn_db_pcie_addr;
-			in_rx.u.ul.is_evt_rn_db_pcie_addr =
-				in->u_rx.rx.is_evt_rn_db_pcie_addr;
 			if (ipa_connect_wdi_pipe(&in_rx, &out_rx)) {
 				IPA_WDI_ERR("fail to setup rx pipe\n");
 				ret = -EFAULT;
@@ -589,10 +554,6 @@ int ipa_wdi_conn_pipes(struct ipa_wdi_conn_in_params *in,
 				in->u_tx.tx.event_ring_size;
 			in_tx.u.dl.num_tx_buffers =
 				in->u_tx.tx.num_pkt_buffers;
-			in_tx.u.dl.is_txr_rn_db_pcie_addr =
-				in->u_tx.tx.is_txr_rn_db_pcie_addr;
-			in_tx.u.dl.is_evt_rn_db_pcie_addr =
-				in->u_tx.tx.is_evt_rn_db_pcie_addr;
 			if (ipa_connect_wdi_pipe(&in_tx, &out_tx)) {
 				IPA_WDI_ERR("fail to setup tx pipe\n");
 				ret = -EFAULT;
@@ -620,10 +581,6 @@ int ipa_wdi_conn_pipes(struct ipa_wdi_conn_in_params *in,
 				in->u_rx.rx_smmu.event_ring_doorbell_pa;
 			in_rx.u.ul_smmu.rdy_comp_ring_size =
 				in->u_rx.rx_smmu.event_ring_size;
-			in_rx.u.ul_smmu.is_txr_rn_db_pcie_addr =
-				in->u_rx.rx_smmu.is_txr_rn_db_pcie_addr;
-			in_rx.u.ul_smmu.is_evt_rn_db_pcie_addr =
-				in->u_rx.rx_smmu.is_evt_rn_db_pcie_addr;
 			if (ipa_connect_wdi_pipe(&in_rx, &out_rx)) {
 				IPA_WDI_ERR("fail to setup rx pipe\n");
 				ret = -EFAULT;
@@ -649,10 +606,6 @@ int ipa_wdi_conn_pipes(struct ipa_wdi_conn_in_params *in,
 				in->u_tx.tx_smmu.event_ring_size;
 			in_tx.u.dl_smmu.num_tx_buffers =
 				in->u_tx.tx_smmu.num_pkt_buffers;
-			in_tx.u.dl_smmu.is_txr_rn_db_pcie_addr =
-				in->u_tx.tx_smmu.is_txr_rn_db_pcie_addr;
-			in_tx.u.dl_smmu.is_evt_rn_db_pcie_addr =
-				in->u_tx.tx_smmu.is_evt_rn_db_pcie_addr;
 			if (ipa_connect_wdi_pipe(&in_tx, &out_tx)) {
 				IPA_WDI_ERR("fail to setup tx pipe\n");
 				ret = -EFAULT;
@@ -704,13 +657,8 @@ int ipa_wdi_disconn_pipes(void)
 		}
 	}
 
-	if (ipa_wdi_ctx->wdi_version == IPA_WDI_3) {
-		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
-		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_CONS);
-	} else {
-		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
-		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
-	}
+	ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
+	ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
 
 	if (ipa_wdi_ctx->wdi_version == IPA_WDI_3) {
 		if (ipa_disconn_wdi_pipes(ipa_ep_idx_rx, ipa_ep_idx_tx)) {
@@ -765,13 +713,8 @@ int ipa_wdi_enable_pipes(void)
 		return -EPERM;
 	}
 
-	if (ipa_wdi_ctx->wdi_version == IPA_WDI_3) {
-		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
-		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_CONS);
-	} else {
-		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
-		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
-	}
+	ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
+	ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
 
 	if (ipa_wdi_ctx->wdi_version == IPA_WDI_3) {
 		if (ipa_enable_wdi_pipes(ipa_ep_idx_tx, ipa_ep_idx_rx)) {
@@ -831,13 +774,8 @@ int ipa_wdi_disable_pipes(void)
 		return -EPERM;
 	}
 
-	if (ipa_wdi_ctx->wdi_version == IPA_WDI_3) {
-		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD);
-		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN2_CONS);
-	} else {
-		ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
-		ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
-	}
+	ipa_ep_idx_rx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_PROD);
+	ipa_ep_idx_tx = ipa_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
 
 	if (ipa_wdi_ctx->wdi_version == IPA_WDI_3) {
 		if (ipa_disable_wdi_pipes(ipa_ep_idx_tx, ipa_ep_idx_rx)) {
@@ -895,11 +833,9 @@ int ipa_wdi_set_perf_profile(struct ipa_wdi_perf_profile *profile)
 		rm_profile.max_supported_bandwidth_mbps =
 			profile->max_supported_bw_mbps;
 
-		if (profile->client == IPA_CLIENT_WLAN1_PROD ||
-			profile->client == IPA_CLIENT_WLAN2_PROD) {
+		if (profile->client == IPA_CLIENT_WLAN1_PROD) {
 			resource_name = IPA_RM_RESOURCE_WLAN_PROD;
-		} else if (profile->client == IPA_CLIENT_WLAN1_CONS ||
-				   profile->client == IPA_CLIENT_WLAN2_CONS) {
+		} else if (profile->client == IPA_CLIENT_WLAN1_CONS) {
 			resource_name = IPA_RM_RESOURCE_WLAN_CONS;
 		} else {
 			IPA_WDI_ERR("not supported\n");

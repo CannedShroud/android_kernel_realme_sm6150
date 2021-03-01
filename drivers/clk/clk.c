@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2010-2011 Canonical Ltd <jeremy.kerr@canonical.com>
  * Copyright (C) 2011-2012 Linaro Ltd <mturquette@linaro.org>
- * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -29,8 +29,6 @@
 #include <linux/regulator/consumer.h>
 
 #include "clk.h"
-
-#if defined(CONFIG_COMMON_CLK)
 
 static DEFINE_SPINLOCK(enable_lock);
 static DEFINE_MUTEX(prepare_lock);
@@ -574,7 +572,8 @@ static int clk_update_vdd(struct clk_vdd_class *vdd_class)
 	for (i = 0; i < vdd_class->num_regulators; i++) {
 		pr_debug("Set Voltage level Min %d, Max %d\n", uv[new_base + i],
 				uv[max_lvl + i]);
-		rc = regulator_set_voltage(r[i], uv[new_base + i], INT_MAX);
+		rc = regulator_set_voltage(r[i], uv[new_base + i],
+			vdd_class->use_max_uV ? INT_MAX : uv[max_lvl + i]);
 		if (rc)
 			goto set_voltage_fail;
 
@@ -595,11 +594,13 @@ static int clk_update_vdd(struct clk_vdd_class *vdd_class)
 	return rc;
 
 enable_disable_fail:
-	regulator_set_voltage(r[i], uv[cur_base + i], INT_MAX);
+	regulator_set_voltage(r[i], uv[cur_base + i],
+			vdd_class->use_max_uV ? INT_MAX : uv[max_lvl + i]);
 
 set_voltage_fail:
 	for (i--; i >= 0; i--) {
-		regulator_set_voltage(r[i], uv[cur_base + i], INT_MAX);
+		regulator_set_voltage(r[i], uv[cur_base + i],
+		       vdd_class->use_max_uV ? INT_MAX : uv[max_lvl + i]);
 		if (cur_lvl == 0 || cur_lvl == vdd_class->num_levels)
 			regulator_disable(r[i]);
 		else if (level == 0)
@@ -2073,13 +2074,10 @@ static int clk_core_set_rate_nolock(struct clk_core *core,
 	if ((core->flags & CLK_SET_RATE_GATE) && core->prepare_count)
 		return -EBUSY;
 
-	set_rate_nesting_count++;
-
 	/* calculate new rates and get the topmost changed clock */
 	top = clk_calc_new_rates(core, rate);
 	if (!top) {
 		ret = -EINVAL;
-		set_rate_nesting_count--;
 		goto pre_rate_change_err;
 	}
 
@@ -2090,12 +2088,12 @@ static int clk_core_set_rate_nolock(struct clk_core *core,
 				fail_clk->name, req_rate);
 		clk_propagate_rate_change(top, ABORT_RATE_CHANGE);
 		ret = -EBUSY;
-		set_rate_nesting_count--;
 		goto pre_rate_change_err;
 	}
 
 
 	/* change the rates */
+	set_rate_nesting_count++;
 	ret = clk_change_rate(top);
 	set_rate_nesting_count--;
 	if (ret) {
@@ -2760,7 +2758,7 @@ static void clk_summary_show_one(struct seq_file *s, struct clk_core *c,
 	if (!c)
 		return;
 
-	seq_printf(s, "%*s%-*s %7d %8d %8lu %11lu %10d %5d\n",
+	seq_printf(s, "%*s%-*s %7d %8d %8d %11lu %10lu %5d %6d\n",
 		   level * 3 + 1, "",
 		   30 - level * 3, c->name,
 		   c->enable_count, c->prepare_count, clk_core_get_rate(c),
@@ -3447,11 +3445,24 @@ EXPORT_SYMBOL_GPL(clk_debugfs_add_file);
  * Otherwise if print_parent set to 0, print only enabled clocks
  *
  */
+//yangmingjin@BSP.POWER.Basic 2019/05/30 add for RM_TAG_POWER_DEBUG
+#ifdef VENDOR_EDIT
+extern bool is_not_in_xo_mode(void);
+#endif
+/* VENDOR_EDIT */
 void clock_debug_print_enabled(bool print_parent)
 {
+//yangmingjin@BSP.POWER.Basic 2019/05/30 add for RM_TAG_POWER_DEBUG
+#ifdef VENDOR_EDIT
+    if (likely(!debug_suspend) && !is_not_in_xo_mode())
+        return;
+    if(is_not_in_xo_mode())
+        printk(KERN_ERR"[RM_POWER]: warning!!! system can not enter xo mode.\n");
+#else
 	if (likely(!debug_suspend))
 		return;
-
+#endif
+/* VENDOR_EDIT */
 	if (print_parent)
 		clock_debug_print_enabled_clocks(NULL);
 	else
@@ -3530,14 +3541,6 @@ static inline void clk_debug_reparent(struct clk_core *core,
 {
 }
 static inline void clk_debug_unregister(struct clk_core *core)
-{
-}
-
-void clk_debug_print_hw(struct clk_core *clk, struct seq_file *f)
-{
-}
-
-void clock_debug_print_enabled(bool print_parent)
 {
 }
 #endif
@@ -3684,17 +3687,11 @@ static int __clk_core_init(struct clk_core *core)
 	if (core->flags & CLK_IS_CRITICAL) {
 		unsigned long flags;
 
-		ret = clk_core_prepare(core);
-		if (ret)
-			goto out;
+		clk_core_prepare(core);
 
 		flags = clk_enable_lock();
-		ret = clk_core_enable(core);
+		clk_core_enable(core);
 		clk_enable_unlock(flags);
-		if (ret) {
-			clk_core_unprepare(core);
-			goto out;
-		}
 	}
 
 	/*
@@ -4115,7 +4112,6 @@ static int clk_add_and_print_opp(struct clk_hw *hw,
 				unsigned long rate, int uv, int n)
 {
 	struct clk_core *core = hw->core;
-	unsigned long rrate;
 	int j, ret = 0;
 
 	for (j = 0; j < count; j++) {
@@ -4126,11 +4122,8 @@ static int clk_add_and_print_opp(struct clk_hw *hw,
 			return ret;
 		}
 
-		clk_prepare_lock();
-		rrate = clk_hw_round_rate(hw, INT_MAX);
-		clk_prepare_unlock();
-
-		if (n == 0 || n == core->num_rate_max - 1 || rate == rrate)
+		if (n == 0 || n == core->num_rate_max - 1 ||
+					rate == clk_hw_round_rate(hw, INT_MAX))
 			pr_info("%s: set OPP pair(%lu Hz: %u uV) on %s\n",
 						core->name, rate, uv,
 						dev_name(device_list[j]));
@@ -4185,9 +4178,7 @@ static void clk_populate_clock_opp_table(struct device_node *np,
 	}
 
 	for (n = 0; ; n++) {
-		clk_prepare_lock();
 		rrate = clk_hw_round_rate(hw, rate + 1);
-		clk_prepare_unlock();
 		if (!rrate) {
 			pr_err("clk_round_rate failed for %s\n",
 							core->name);
@@ -4475,8 +4466,6 @@ int clk_notifier_unregister(struct clk *clk, struct notifier_block *nb)
 }
 EXPORT_SYMBOL_GPL(clk_notifier_unregister);
 
-#endif /* CONFIG_COMMON_CLK */
-
 #ifdef CONFIG_OF
 /**
  * struct of_clk_provider - Clock provider registration structure
@@ -4514,8 +4503,6 @@ struct clk_hw *of_clk_hw_simple_get(struct of_phandle_args *clkspec, void *data)
 }
 EXPORT_SYMBOL_GPL(of_clk_hw_simple_get);
 
-#if defined(CONFIG_COMMON_CLK)
-
 struct clk *of_clk_src_onecell_get(struct of_phandle_args *clkspec, void *data)
 {
 	struct clk_onecell_data *clk_data = data;
@@ -4544,29 +4531,6 @@ of_clk_hw_onecell_get(struct of_phandle_args *clkspec, void *data)
 	return hw_data->hws[idx];
 }
 EXPORT_SYMBOL_GPL(of_clk_hw_onecell_get);
-
-#endif /* CONFIG_COMMON_CLK */
-
-/**
- * of_clk_del_provider() - Remove a previously registered clock provider
- * @np: Device node pointer associated with clock provider
- */
-void of_clk_del_provider(struct device_node *np)
-{
-	struct of_clk_provider *cp;
-
-	mutex_lock(&of_clk_mutex);
-	list_for_each_entry(cp, &of_clk_providers, link) {
-		if (cp->node == np) {
-			list_del(&cp->link);
-			of_node_put(cp->node);
-			kfree(cp);
-			break;
-		}
-	}
-	mutex_unlock(&of_clk_mutex);
-}
-EXPORT_SYMBOL_GPL(of_clk_del_provider);
 
 /**
  * of_clk_add_provider() - Register a clock provider for a node
@@ -4668,6 +4632,27 @@ int devm_of_clk_add_hw_provider(struct device *dev,
 	return ret;
 }
 EXPORT_SYMBOL_GPL(devm_of_clk_add_hw_provider);
+
+/**
+ * of_clk_del_provider() - Remove a previously registered clock provider
+ * @np: Device node pointer associated with clock provider
+ */
+void of_clk_del_provider(struct device_node *np)
+{
+	struct of_clk_provider *cp;
+
+	mutex_lock(&of_clk_mutex);
+	list_for_each_entry(cp, &of_clk_providers, link) {
+		if (cp->node == np) {
+			list_del(&cp->link);
+			of_node_put(cp->node);
+			kfree(cp);
+			break;
+		}
+	}
+	mutex_unlock(&of_clk_mutex);
+}
+EXPORT_SYMBOL_GPL(of_clk_del_provider);
 
 static int devm_clk_provider_match(struct device *dev, void *res, void *data)
 {
@@ -4818,10 +4803,8 @@ const char *of_clk_get_parent_name(struct device_node *np, int index)
 			else
 				clk_name = NULL;
 		} else {
-#if defined(CONFIG_COMMON_CLK)
 			clk_name = __clk_get_name(clk);
 			clk_put(clk);
-#endif
 		}
 	}
 
@@ -4851,8 +4834,6 @@ int of_clk_parent_fill(struct device_node *np, const char **parents,
 	return i;
 }
 EXPORT_SYMBOL_GPL(of_clk_parent_fill);
-
-#if defined(CONFIG_COMMON_CLK)
 
 struct clock_provider {
 	of_clk_init_cb_t clk_init_cb;
@@ -5004,7 +4985,4 @@ void __init of_clk_init(const struct of_device_id *matches)
 			force = true;
 	}
 }
-
-#endif /* CONFIG_COMMON_CLK */
-
 #endif

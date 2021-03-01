@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -85,10 +85,9 @@
  * clock rate, fast average samples with no measurement in queue.
  * Set the timeout to a max of 100ms.
  */
-#define ADC_POLL_DELAY_MIN_US			10000
-#define ADC_POLL_DELAY_MAX_US			10001
-#define ADC_CONV_TIME_RETRY_POLL		40
-#define ADC_CONV_TIME_RETRY			30
+#define ADC_CONV_TIME_MIN_US			263
+#define ADC_CONV_TIME_MAX_US			264
+#define ADC_CONV_TIME_RETRY			400
 #define ADC_CONV_TIMEOUT			msecs_to_jiffies(100)
 
 /* CAL peripheral */
@@ -134,8 +133,6 @@ struct adc_channel_prop {
 	unsigned int			prescale;
 	unsigned int			hw_settle_time;
 	unsigned int			avg_samples;
-	/*lut_index is used only for bat_therm LUTs*/
-	unsigned int			lut_index;
 	enum vadc_scale_fn_type		scale_fn_type;
 	const char			*datasheet_name;
 };
@@ -168,7 +165,6 @@ struct adc_chip {
 	bool			skip_usb_wa;
 	struct pmic_revid_data	*pmic_rev_id;
 	const struct adc_data	*data;
-	int			adc_irq;
 };
 
 static const struct vadc_prescale_ratio adc_prescale_ratios[] = {
@@ -275,16 +271,13 @@ static int adc_read_voltage_data(struct adc_chip *adc, u16 *data)
 	return ret;
 }
 
-static int adc_poll_wait_eoc(struct adc_chip *adc, bool poll_only)
+static int adc_poll_wait_eoc(struct adc_chip *adc)
 {
 	unsigned int count, retry;
 	u8 status1;
 	int ret;
 
-	if (poll_only)
-		retry = ADC_CONV_TIME_RETRY_POLL;
-	else
-		retry = ADC_CONV_TIME_RETRY;
+	retry = ADC_CONV_TIME_RETRY;
 
 	for (count = 0; count < retry; count++) {
 		ret = adc_read(adc, ADC_USR_STATUS1, &status1, 1);
@@ -294,7 +287,7 @@ static int adc_poll_wait_eoc(struct adc_chip *adc, bool poll_only)
 		status1 &= ADC_USR_STATUS1_REQ_STS_EOC_MASK;
 		if (status1 == ADC_USR_STATUS1_EOC)
 			return 0;
-		usleep_range(ADC_POLL_DELAY_MIN_US, ADC_POLL_DELAY_MAX_US);
+		usleep_range(ADC_CONV_TIME_MIN_US, ADC_CONV_TIME_MAX_US);
 	}
 
 	return -ETIMEDOUT;
@@ -305,7 +298,7 @@ static int adc_wait_eoc(struct adc_chip *adc)
 	int ret;
 
 	if (adc->poll_eoc) {
-		ret = adc_poll_wait_eoc(adc, true);
+		ret = adc_poll_wait_eoc(adc);
 		if (ret < 0) {
 			pr_err("EOC bit not set\n");
 			return ret;
@@ -315,7 +308,7 @@ static int adc_wait_eoc(struct adc_chip *adc)
 							ADC_CONV_TIMEOUT);
 		if (!ret) {
 			pr_debug("Did not get completion timeout.\n");
-			ret = adc_poll_wait_eoc(adc, false);
+			ret = adc_poll_wait_eoc(adc);
 			if (ret < 0) {
 				pr_err("EOC bit not set\n");
 				return ret;
@@ -504,23 +497,7 @@ static int adc_configure(struct adc_chip *adc,
 	if (!adc->poll_eoc)
 		reinit_completion(&adc->complete);
 
-	ret = adc_write(adc, ADC_USR_DIG_PARAM, buf, 1);
-	if (ret)
-		return ret;
-
-	ret = adc_write(adc, ADC_USR_FAST_AVG_CTL, &buf[1], 1);
-	if (ret)
-		return ret;
-
-	ret = adc_write(adc, ADC_USR_CH_SEL_CTL, &buf[2], 1);
-	if (ret)
-		return ret;
-
-	ret = adc_write(adc, ADC_USR_DELAY_CTL, &buf[3], 1);
-	if (ret)
-		return ret;
-
-	ret = adc_write(adc, ADC_USR_EN_CTL1, &buf[4], 1);
+	ret = adc_write(adc, ADC_USR_DIG_PARAM, buf, ADC5_MULTI_TRANSFER);
 	if (ret)
 		return ret;
 
@@ -563,19 +540,14 @@ static int adc_do_conversion(struct adc_chip *adc,
 	if (ret < 0)
 		goto unlock;
 
-	if ((chan->type == IIO_VOLTAGE) || (chan->type == IIO_TEMP)) {
+	if ((chan->type == IIO_VOLTAGE) || (chan->type == IIO_TEMP))
 		ret = adc_read_voltage_data(adc, data_volt);
-		if (ret)
-			goto unlock;
-	}
 	else if (chan->type == IIO_POWER) {
 		ret = adc_read_voltage_data(adc, data_volt);
 		if (ret)
 			goto unlock;
 
 		ret = adc_read_current_data(adc, data_cur);
-		if (ret)
-			goto unlock;
 	}
 
 	ret = adc_post_configure_usb_in_read(adc, prop);
@@ -628,7 +600,7 @@ static int adc_read_raw(struct iio_dev *indio_dev,
 		if ((chan->type == IIO_VOLTAGE) || (chan->type == IIO_TEMP))
 			ret = qcom_vadc_hw_scale(prop->scale_fn_type,
 				&adc_prescale_ratios[prop->prescale],
-				adc->data, prop->lut_index,
+				adc->data,
 				adc_code_volt, val);
 		if (ret)
 			break;
@@ -636,14 +608,14 @@ static int adc_read_raw(struct iio_dev *indio_dev,
 		if (chan->type == IIO_POWER) {
 			ret = qcom_vadc_hw_scale(SCALE_HW_CALIB_DEFAULT,
 				&adc_prescale_ratios[VADC_DEF_VBAT_PRESCALING],
-				adc->data, prop->lut_index,
+				adc->data,
 				adc_code_volt, val);
 			if (ret)
 				break;
 
 			ret = qcom_vadc_hw_scale(prop->scale_fn_type,
 				&adc_prescale_ratios[prop->prescale],
-				adc->data, prop->lut_index,
+				adc->data,
 				adc_code_cur, val2);
 			if (ret)
 				break;
@@ -765,12 +737,16 @@ static const struct adc_channels adc_chans_pmic5[ADC_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_PM5_SMB_TEMP)
 	[ADC_GPIO1_PU2]	= ADC_CHAN_TEMP("gpio1_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
-	[ADC_GPIO2_PU2]	= ADC_CHAN_TEMP("gpio2_pu2", 1,
-					SCALE_HW_CALIB_THERM_100K_PULLUP)
-	[ADC_GPIO3_PU2]	= ADC_CHAN_TEMP("gpio3_pu2", 1,
-					SCALE_HW_CALIB_THERM_100K_PULLUP)
 	[ADC_GPIO4_PU2]	= ADC_CHAN_TEMP("gpio4_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
+#ifdef VENDOR_EDIT
+/* Yichun.Chen	PSW.BSP.CHG  2019-04-13  for read chargerid */
+/* Yichun.Chen	PSW.BSP.CHG  2019-05-16  for usb temp */
+	[ADC_GPIO4] = ADC_CHAN_VOLT("chgid_voltage", 1, SCALE_HW_CALIB_DEFAULT)
+	[ADC_AMUX_THM1] = ADC_CHAN_VOLT("usb_temp1", 1, SCALE_HW_CALIB_DEFAULT)
+	[ADC_AMUX_THM3] = ADC_CHAN_VOLT("usb_temp2", 1, SCALE_HW_CALIB_DEFAULT)
+	[ADC_GPIO2] = ADC_CHAN_VOLT("board_id_vdata", 1, SCALE_HW_CALIB_DEFAULT)
+#endif
 };
 
 static const struct adc_channels adc_chans_rev2[ADC_MAX_CHANNEL] = {
@@ -794,12 +770,6 @@ static const struct adc_channels adc_chans_rev2[ADC_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
 	[ADC_XO_THERM_PU2]	= ADC_CHAN_TEMP("xo_therm", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
-	[ANA_IN]		= ADC_CHAN_TEMP("drax_temp", 1,
-					SCALE_HW_CALIB_PMIC_THERM)
-	[ADC_AMUX_THM1]		= ADC_CHAN_VOLT("amux_thm1", 1,
-					SCALE_HW_CALIB_DEFAULT)
-	[ADC_AMUX_THM3]		= ADC_CHAN_VOLT("amux_thm3", 1,
-					SCALE_HW_CALIB_DEFAULT)
 };
 
 static int adc_get_dt_channel_data(struct device *dev,
@@ -882,17 +852,6 @@ static int adc_get_dt_channel_data(struct device *dev,
 	} else {
 		prop->avg_samples = VADC_DEF_AVG_SAMPLES;
 	}
-
-	prop->scale_fn_type = -EINVAL;
-	ret = of_property_read_u32(node, "qcom,scale-fn-type", &value);
-	if (!ret && value < SCALE_HW_CALIB_MAX)
-		prop->scale_fn_type = value;
-
-	prop->lut_index = VADC_DEF_LUT_INDEX;
-
-	ret = of_property_read_u32(node, "qcom,lut-index", &value);
-	if (!ret)
-		prop->lut_index = value;
 
 	if (of_property_read_bool(node, "qcom,ratiometric"))
 		prop->cal_method = ADC_RATIOMETRIC_CAL;
@@ -981,10 +940,8 @@ static int adc_get_dt_data(struct adc_chip *adc, struct device_node *node)
 			return ret;
 		}
 
-		if (prop.scale_fn_type == -EINVAL)
-			prop.scale_fn_type =
-				data->adc_chans[prop.channel].scale_fn_type;
-
+		prop.scale_fn_type =
+			data->adc_chans[prop.channel].scale_fn_type;
 		adc->chan_props[index] = prop;
 
 		adc_chan = &data->adc_chans[prop.channel];
@@ -1031,7 +988,7 @@ static int adc_probe(struct platform_device *pdev)
 	struct adc_chip *adc;
 	struct regmap *regmap;
 	const __be32 *prop_addr;
-	int ret;
+	int ret, irq_eoc;
 	u32 reg;
 	bool skip_usb_wa = false;
 
@@ -1046,7 +1003,7 @@ static int adc_probe(struct platform_device *pdev)
 	revid_dev_node = of_parse_phandle(node, "qcom,pmic-revid", 0);
 	if (revid_dev_node) {
 		pmic_rev_id = get_revid_data(revid_dev_node);
-		if (!(IS_ERR_OR_NULL(pmic_rev_id)))
+		if (!(IS_ERR(pmic_rev_id)))
 			skip_usb_wa = skip_usb_in_wa(pmic_rev_id);
 		else {
 			pr_err("Unable to get revid\n");
@@ -1063,7 +1020,6 @@ static int adc_probe(struct platform_device *pdev)
 	adc->regmap = regmap;
 	adc->dev = dev;
 	adc->pmic_rev_id = pmic_rev_id;
-	dev_set_drvdata(&pdev->dev, adc);
 
 	prop_addr = of_get_address(dev->of_node, 0, NULL, NULL);
 	if (!prop_addr) {
@@ -1089,13 +1045,13 @@ static int adc_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	adc->adc_irq = platform_get_irq(pdev, 0);
-	if (adc->adc_irq < 0) {
-		if (adc->adc_irq == -EPROBE_DEFER || adc->adc_irq == -EINVAL)
-			return adc->adc_irq;
+	irq_eoc = platform_get_irq(pdev, 0);
+	if (irq_eoc < 0) {
+		if (irq_eoc == -EPROBE_DEFER || irq_eoc == -EINVAL)
+			return irq_eoc;
 		adc->poll_eoc = true;
 	} else {
-		ret = devm_request_irq(dev, adc->adc_irq, adc_isr, 0,
+		ret = devm_request_irq(dev, irq_eoc, adc_isr, 0,
 				       "pm-adc5", adc);
 		if (ret)
 			return ret;
@@ -1112,46 +1068,10 @@ static int adc_probe(struct platform_device *pdev)
 	return devm_iio_device_register(dev, indio_dev);
 }
 
-static int adc_restore(struct device *dev)
-{
-	int ret = 0;
-	struct adc_chip *adc = dev_get_drvdata(dev);
-
-	dev_dbg(dev, "%s\n", __func__);
-
-	if (adc->adc_irq > 0) {
-		ret = devm_request_irq(dev, adc->adc_irq, adc_isr, 0,
-				       "pm-adc5", adc);
-		if (ret)
-			return ret;
-	}
-
-	return ret;
-}
-
-static int adc_freeze(struct device *dev)
-{
-	struct adc_chip *adc = dev_get_drvdata(dev);
-
-	dev_dbg(dev, "%s\n", __func__);
-
-	if (adc->adc_irq > 0)
-		devm_free_irq(dev, adc->adc_irq, adc);
-
-	return 0;
-}
-
-static const struct dev_pm_ops adc_pm_ops = {
-	.freeze = adc_freeze,
-	.restore = adc_restore,
-	.thaw = adc_restore,
-};
-
 static struct platform_driver adc_driver = {
 	.driver = {
 		.name = "qcom-spmi-adc5.c",
 		.of_match_table = adc_match_table,
-		.pm = &adc_pm_ops,
 	},
 	.probe = adc_probe,
 };

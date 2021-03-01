@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -147,13 +147,7 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_ENDP_GSI_CFG_AOS_n),
 	__stringify(IPA_ENDP_GSI_CFG_TLV_n),
 	__stringify(IPA_COAL_EVICT_LRU),
-	__stringify(IPA_COAL_QMAP_CFG),
-	__stringify(IPA_NAT_UC_EXTERNAL_CFG),
-	__stringify(IPA_NAT_UC_LOCAL_CFG),
-	__stringify(IPA_NAT_UC_SHARED_CFG),
-	__stringify(IPA_CONN_TRACK_UC_EXTERNAL_CFG),
-	__stringify(IPA_CONN_TRACK_UC_LOCAL_CFG),
-	__stringify(IPA_CONN_TRACK_UC_SHARED_CFG)
+	__stringify(IPA_COAL_QMAP_CFG)
 };
 
 static void ipareg_construct_dummy(enum ipahal_reg_name reg,
@@ -1193,73 +1187,6 @@ static void ipareg_parse_comp_cfg_v4_5(
 		IPA_COMP_CFG_IPA_FULL_FLUSH_WAIT_RSC_CLOSURE_EN_BMSK_v4_5);
 }
 
-static void ipareg_parse_state_tx_wrapper_v4_5(
-	enum ipahal_reg_name reg, void *fields, u32 val)
-{
-	struct ipahal_reg_tx_wrapper *tx =
-		(struct ipahal_reg_tx_wrapper *)fields;
-
-	tx->tx0_idle = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_TX0_IDLE_SHFT,
-		IPA_STATE_TX_WRAPPER_TX0_IDLE_BMSK);
-
-	tx->tx1_idle = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_TX1_IDLE_SHFT,
-		IPA_STATE_TX_WRAPPER_TX1_IDLE_BMSK);
-
-	tx->ipa_prod_ackmngr_db_empty = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_IPA_PROD_ACKMNGR_DB_EMPTY_SHFT,
-		IPA_STATE_TX_WRAPPER_IPA_PROD_ACKMNGR_DB_EMPTY_BMSK);
-
-	tx->ipa_prod_ackmngr_state_idle = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_IPA_PROD_ACKMNGR_STATE_IDLE_SHFT,
-		IPA_STATE_TX_WRAPPER_IPA_PROD_ACKMNGR_STATE_IDLE_BMSK);
-
-	tx->ipa_prod_prod_bresp_empty = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_IPA_PROD_BRESP_EMPTY_SHFT,
-		IPA_STATE_TX_WRAPPER_IPA_PROD_BRESP_EMPTY_BMSK);
-
-	tx->ipa_prod_prod_bresp_toggle_idle = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_IPA_PROD_BRESP_EMPTY_SHFT,
-		IPA_STATE_TX_WRAPPER_IPA_PROD_BRESP_EMPTY_BMSK);
-
-	tx->ipa_mbim_pkt_fms_idle = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_IPA_MBIM_PKT_FMS_IDLE_SHFT,
-		IPA_STATE_TX_WRAPPER_IPA_MBIM_PKT_FMS_IDLE_BMSK);
-
-	tx->mbim_direct_dma = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_MBIM_DIRECT_DMA_SHFT,
-		IPA_STATE_TX_WRAPPER_MBIM_DIRECT_DMA_BMSK);
-
-	tx->trnseq_force_valid = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_TRNSEQ_FORCE_VALID_SHFT,
-		IPA_STATE_TX_WRAPPER_TRNSEQ_FORCE_VALID_BMSK);
-
-	tx->pkt_drop_cnt_idle = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_PKT_DROP_CNT_IDLE_SHFT,
-		IPA_STATE_TX_WRAPPER_PKT_DROP_CNT_IDLE_BMSK);
-
-	tx->nlo_direct_dma = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_NLO_DIRECT_DMA_SHFT,
-		IPA_STATE_TX_WRAPPER_NLO_DIRECT_DMA_BMSK);
-
-	tx->coal_direct_dma = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_COAL_DIRECT_DMA_SHFT,
-		IPA_STATE_TX_WRAPPER_COAL_DIRECT_DMA_BMSK);
-
-	tx->coal_slave_idle = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_COAL_SLAVE_IDLE_SHFT,
-		IPA_STATE_TX_WRAPPER_COAL_SLAVE_IDLE_BMSK);
-
-	tx->coal_slave_ctx_idle = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_COAL_SLAVE_CTX_IDLE_SHFT,
-		IPA_STATE_TX_WRAPPER_COAL_SLAVE_CTX_IDLE_BMSK);
-
-	tx->coal_slave_open_frame = IPA_GETFIELD_FROM_REG(val,
-		IPA_STATE_TX_WRAPPER_COAL_SLAVE_OPEN_FRAME_SHFT,
-		IPA_STATE_TX_WRAPPER_COAL_SLAVE_OPEN_FRAME_BMSK);
-}
-
 static void ipareg_construct_qcncm(
 	enum ipahal_reg_name reg, const void *fields, u32 *val)
 {
@@ -1870,6 +1797,12 @@ static void ipareg_construct_endp_init_aggr_n_v4_5(enum ipahal_reg_name reg,
 		IPA_ENDP_INIT_AGGR_n_AGGR_SW_EOF_ACTIVE_SHFT_V4_5,
 		IPA_ENDP_INIT_AGGR_n_AGGR_SW_EOF_ACTIVE_BMSK_V4_5);
 
+	/* At IPAv3 hard_byte_limit is not supported */
+	if (ep_aggr->aggr_hard_byte_limit_en) {
+		IPAHAL_ERR("hard byte limit aggr is not supported\n");
+		WARN_ON(1);
+	}
+	ep_aggr->aggr_hard_byte_limit_en = 0;
 	IPA_SETFIELD_IN_REG(*val, ep_aggr->aggr_hard_byte_limit_en,
 		IPA_ENDP_INIT_AGGR_n_AGGR_HARD_BYTE_LIMIT_ENABLE_SHFT_V4_5,
 		IPA_ENDP_INIT_AGGR_n_AGGR_HARD_BYTE_LIMIT_ENABLE_BMSK_V4_5);
@@ -2457,184 +2390,14 @@ static void ipareg_parse_coal_qmap_cfg(enum ipahal_reg_name reg,
 		IPA_COAL_QMAP_CFG_SHFT, IPA_COAL_QMAP_CFG_BMSK);
 }
 
-static void ipareg_construct_nat_uc_external_cfg(enum ipahal_reg_name reg,
-	const void *fields, u32 *val)
-{
-	struct ipahal_reg_nat_uc_external_cfg *nat_uc_external_cfg =
-		(struct ipahal_reg_nat_uc_external_cfg *)fields;
-
-	IPA_SETFIELD_IN_REG(*val,
-		nat_uc_external_cfg->nat_uc_external_table_addr_lsb,
-		IPA_NAT_UC_EXTERNAL_CFG_SHFT, IPA_NAT_UC_EXTERNAL_CFG_BMSK);
-}
-
-static void ipareg_parse_nat_uc_external_cfg(enum ipahal_reg_name reg,
-	void *fields, u32 val)
-{
-	struct ipahal_reg_nat_uc_external_cfg *nat_uc_external_cfg =
-		(struct ipahal_reg_nat_uc_external_cfg *)fields;
-
-	memset(nat_uc_external_cfg, 0, sizeof(*nat_uc_external_cfg));
-
-	nat_uc_external_cfg->nat_uc_external_table_addr_lsb =
-		IPA_GETFIELD_FROM_REG(val, IPA_NAT_UC_EXTERNAL_CFG_SHFT,
-			IPA_NAT_UC_EXTERNAL_CFG_BMSK);
-}
-
-static void ipareg_construct_nat_uc_local_cfg(enum ipahal_reg_name reg,
-	const void *fields, u32 *val)
-{
-	struct ipahal_reg_nat_uc_local_cfg *nat_uc_local_cfg =
-		(struct ipahal_reg_nat_uc_local_cfg *)fields;
-
-	IPA_SETFIELD_IN_REG(*val, nat_uc_local_cfg->nat_uc_local_table_addr_lsb,
-		IPA_NAT_UC_LOCAL_CFG_SHFT, IPA_NAT_UC_LOCAL_CFG_BMSK);
-}
-
-static void ipareg_parse_nat_uc_local_cfg(enum ipahal_reg_name reg,
-	void *fields, u32 val)
-{
-	struct ipahal_reg_nat_uc_local_cfg *nat_uc_local_cfg =
-		(struct ipahal_reg_nat_uc_local_cfg *)fields;
-
-	memset(nat_uc_local_cfg, 0, sizeof(*nat_uc_local_cfg));
-
-	nat_uc_local_cfg->nat_uc_local_table_addr_lsb =
-		IPA_GETFIELD_FROM_REG(val, IPA_NAT_UC_LOCAL_CFG_SHFT,
-			IPA_NAT_UC_LOCAL_CFG_BMSK);
-}
-
-static void ipareg_construct_nat_uc_shared_cfg(enum ipahal_reg_name reg,
-	const void *fields, u32 *val)
-{
-	struct ipahal_reg_nat_uc_shared_cfg *nat_uc_shared_cfg =
-		(struct ipahal_reg_nat_uc_shared_cfg *)fields;
-
-	IPA_SETFIELD_IN_REG(*val,
-		nat_uc_shared_cfg->nat_uc_local_table_addr_msb,
-		IPA_NAT_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_SHFT,
-		IPA_NAT_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_BMSK);
-
-	IPA_SETFIELD_IN_REG(*val,
-		nat_uc_shared_cfg->nat_uc_external_table_addr_msb,
-		IPA_NAT_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_SHFT,
-		IPA_NAT_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_BMSK);
-}
-
-static void ipareg_parse_nat_uc_shared_cfg(enum ipahal_reg_name reg,
-	void *fields, u32 val)
-{
-	struct ipahal_reg_nat_uc_shared_cfg *nat_uc_shared_cfg =
-		(struct ipahal_reg_nat_uc_shared_cfg *)fields;
-
-	memset(nat_uc_shared_cfg, 0, sizeof(*nat_uc_shared_cfg));
-
-	nat_uc_shared_cfg->nat_uc_local_table_addr_msb =
-		IPA_GETFIELD_FROM_REG(val,
-			IPA_NAT_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_SHFT,
-			IPA_NAT_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_BMSK);
-
-	nat_uc_shared_cfg->nat_uc_external_table_addr_msb =
-		IPA_GETFIELD_FROM_REG(val,
-			IPA_NAT_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_SHFT,
-			IPA_NAT_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_BMSK);
-}
-
-static void ipareg_construct_conn_track_uc_external_cfg
-	(enum ipahal_reg_name reg, const void *fields, u32 *val)
-{
-	struct ipahal_reg_conn_track_uc_external_cfg *conn_track_uc_external_cfg
-		= (struct ipahal_reg_conn_track_uc_external_cfg *)fields;
-
-	IPA_SETFIELD_IN_REG(*val,
-	conn_track_uc_external_cfg->conn_track_uc_external_table_addr_lsb,
-		IPA_CONN_TRACK_UC_EXTERNAL_CFG_SHFT,
-		IPA_CONN_TRACK_UC_EXTERNAL_CFG_BMSK);
-}
-
-static void ipareg_parse_conn_track_uc_external_cfg(enum ipahal_reg_name reg,
-	void *fields, u32 val)
-{
-	struct ipahal_reg_conn_track_uc_external_cfg *conn_track_uc_external_cfg
-		= (struct ipahal_reg_conn_track_uc_external_cfg *)fields;
-
-	memset(conn_track_uc_external_cfg, 0,
-		sizeof(*conn_track_uc_external_cfg));
-
-	conn_track_uc_external_cfg->conn_track_uc_external_table_addr_lsb =
-		IPA_GETFIELD_FROM_REG(val, IPA_CONN_TRACK_UC_EXTERNAL_CFG_SHFT,
-			IPA_CONN_TRACK_UC_EXTERNAL_CFG_BMSK);
-}
-
-static void ipareg_construct_conn_track_uc_local_cfg(enum ipahal_reg_name reg,
-	const void *fields, u32 *val)
-{
-	struct ipahal_reg_conn_track_uc_local_cfg *conn_track_uc_local_cfg =
-		(struct ipahal_reg_conn_track_uc_local_cfg *)fields;
-
-	IPA_SETFIELD_IN_REG(*val,
-		conn_track_uc_local_cfg->conn_track_uc_local_table_addr_lsb,
-		IPA_CONN_TRACK_UC_LOCAL_CFG_SHFT,
-		IPA_CONN_TRACK_UC_LOCAL_CFG_BMSK);
-}
-
-static void ipareg_parse_conn_track_uc_local_cfg(enum ipahal_reg_name reg,
-	void *fields, u32 val)
-{
-	struct ipahal_reg_conn_track_uc_local_cfg *conn_track_uc_local_cfg =
-		(struct ipahal_reg_conn_track_uc_local_cfg *)fields;
-
-	memset(conn_track_uc_local_cfg, 0, sizeof(*conn_track_uc_local_cfg));
-
-	conn_track_uc_local_cfg->conn_track_uc_local_table_addr_lsb =
-		IPA_GETFIELD_FROM_REG(val, IPA_CONN_TRACK_UC_LOCAL_CFG_SHFT,
-			IPA_CONN_TRACK_UC_LOCAL_CFG_BMSK);
-}
-
-static void ipareg_construct_conn_track_uc_shared_cfg(enum ipahal_reg_name reg,
-	const void *fields, u32 *val)
-{
-	struct ipahal_reg_conn_track_uc_shared_cfg *conn_track_uc_shared_cfg =
-		(struct ipahal_reg_conn_track_uc_shared_cfg *)fields;
-
-	IPA_SETFIELD_IN_REG(*val,
-		conn_track_uc_shared_cfg->conn_track_uc_local_table_addr_msb,
-		IPA_CONN_TRACK_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_SHFT,
-		IPA_CONN_TRACK_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_BMSK);
-
-	IPA_SETFIELD_IN_REG(*val,
-		conn_track_uc_shared_cfg->conn_track_uc_external_table_addr_msb,
-		IPA_CONN_TRACK_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_SHFT,
-		IPA_CONN_TRACK_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_BMSK);
-}
-
-static void ipareg_parse_conn_track_uc_shared_cfg(enum ipahal_reg_name reg,
-	void *fields, u32 val)
-{
-	struct ipahal_reg_conn_track_uc_shared_cfg *conn_track_uc_shared_cfg =
-		(struct ipahal_reg_conn_track_uc_shared_cfg *)fields;
-
-	memset(conn_track_uc_shared_cfg, 0, sizeof(*conn_track_uc_shared_cfg));
-
-	conn_track_uc_shared_cfg->conn_track_uc_local_table_addr_msb =
-		IPA_GETFIELD_FROM_REG(val,
-			IPA_CONN_TRACK_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_SHFT,
-			IPA_CONN_TRACK_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_BMSK);
-
-	conn_track_uc_shared_cfg->conn_track_uc_external_table_addr_msb =
-		IPA_GETFIELD_FROM_REG(val,
-		IPA_CONN_TRACK_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_SHFT,
-		IPA_CONN_TRACK_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_BMSK);
-}
-
 /*
  * struct ipahal_reg_obj - Register H/W information for specific IPA version
  * @construct - CB to construct register value from abstracted structure
  * @parse - CB to parse register value to abstracted structure
  * @offset - register offset relative to base address
  * @n_ofst - N parameterized register sub-offset
- * @n_start - starting n for n_registers used for printing
- * @n_end - ending n for n_registers used for printing
+ * @n_start - starting n for n_registers
+ * @n_end - ending n for n_registers
  * @en_print - enable this register to be printed when the device crashes
  */
 struct ipahal_reg_obj {
@@ -2935,29 +2698,29 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	/* IPAv4.0 */
 	[IPA_HW_v4_0][IPA_SUSPEND_IRQ_INFO_EE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00003030, 0x1000, 0, 0, 1},
+		0x00003030, 0x1000, 0, 1, 1},
 	[IPA_HW_v4_0][IPA_SUSPEND_IRQ_EN_EE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00003034, 0x1000, 0, 0, 1},
+		0x00003034, 0x1000, 0, 1, 1},
 	[IPA_HW_v4_0][IPA_SUSPEND_IRQ_CLR_EE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00003038, 0x1000, 0, 0, 1},
+		0x00003038, 0x1000, 0, 1, 1},
 	[IPA_HW_v4_0][IPA_IRQ_EN_EE_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x0000300c, 0x1000, 0, 0, 1},
+		0x0000300c, 0x1000, 0, 1, 1},
 	[IPA_HW_v4_0][IPA_TAG_TIMER] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x00000060, 0, 0, 0, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_CTRL_n] = {
 		ipareg_construct_endp_init_ctrl_n_v4_0, ipareg_parse_dummy,
-		0x00000800, 0x70, 0, 22, 1},
+		0x00000800, 0x70, 0, 23, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_HDR_EXT_n] = {
 		ipareg_construct_endp_init_hdr_ext_n, ipareg_parse_dummy,
-		0x00000814, 0x70, 0, 22, 1},
+		0x00000814, 0x70, 0, 23, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_AGGR_n] = {
 		ipareg_construct_endp_init_aggr_n,
 		ipareg_parse_endp_init_aggr_n,
-		0x00000824, 0x70, 0, 22, 1},
+		0x00000824, 0x70, 0, 23, 1},
 	[IPA_HW_v4_0][IPA_TX_CFG] = {
 		ipareg_construct_tx_cfg_v4_0, ipareg_parse_tx_cfg_v4_0,
 		0x000001FC, 0, 0, 0, 0},
@@ -2981,58 +2744,58 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 		0x0000014c, 0, 0, 0, 0},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_HDR_n] = {
 		ipareg_construct_endp_init_hdr_n, ipareg_parse_dummy,
-		0x00000810, 0x70, 0, 22, 1},
+		0x00000810, 0x70, 0, 23, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_ROUTE_n] = {
 		ipareg_construct_endp_init_route_n, ipareg_parse_dummy,
 		-1, 0, 0, 0, 0},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_MODE_n] = {
 		ipareg_construct_endp_init_mode_n, ipareg_parse_dummy,
-		0x00000820, 0x70, 0, 9, 1},
+		0x00000820, 0x70, 0, 10, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_NAT_n] = {
 		ipareg_construct_endp_init_nat_n, ipareg_parse_dummy,
-		0x0000080C, 0x70, 0, 9, 1},
+		0x0000080C, 0x70, 0, 10, 1},
 	[IPA_HW_v4_0][IPA_ENDP_STATUS_n] = {
 		ipareg_construct_endp_status_n_v4_0, ipareg_parse_dummy,
-		0x00000840, 0x70, 0, 22, 1},
+		0x00000840, 0x70, 0, 23, 1},
 	[IPA_HW_v4_0][IPA_ENDP_FILTER_ROUTER_HSH_CFG_n] = {
 		ipareg_construct_hash_cfg_n, ipareg_parse_hash_cfg_n,
-		0x0000085C, 0x70, 0, 31, 1},
+		0x0000085C, 0x70, 0, 32, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_CONN_TRACK_n] = {
 		ipareg_construct_endp_init_conn_track_n,
 		ipareg_parse_dummy,
-		0x00000850, 0x70, 0, 9, 1},
+		0x00000850, 0x70, 0, 10, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_CTRL_SCND_n] = {
 		ipareg_construct_endp_init_ctrl_scnd_n, ipareg_parse_dummy,
-		0x00000804, 0x70, 0, 22, 1},
+		0x00000804, 0x70, 0, 23, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_HOL_BLOCK_EN_n] = {
 		ipareg_construct_endp_init_hol_block_en_n,
 		ipareg_parse_dummy,
-		0x0000082c, 0x70, 10, 22, 1},
+		0x0000082c, 0x70, 10, 23, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_HOL_BLOCK_TIMER_n] = {
 		ipareg_construct_endp_init_hol_block_timer_n,
 		ipareg_parse_dummy,
-		0x00000830, 0x70, 10, 22, 1},
+		0x00000830, 0x70, 10, 23, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_DEAGGR_n] = {
 		ipareg_construct_endp_init_deaggr_n,
 		ipareg_parse_dummy,
-		0x00000834, 0x70, 0, 9, 1},
+		0x00000834, 0x70, 0, 10, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_SEQ_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x0000083C, 0x70, 0, 9, 1},
+		0x0000083C, 0x70, 0, 10, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_CFG_n] = {
 		ipareg_construct_endp_init_cfg_n, ipareg_parse_dummy,
-		0x00000808, 0x70, 0, 22, 1},
+		0x00000808, 0x70, 0, 23, 1},
 	[IPA_HW_v4_0][IPA_IRQ_EE_UC_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x0000301c, 0x1000, 0, 0, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_HDR_METADATA_MASK_n] = {
 		ipareg_construct_endp_init_hdr_metadata_mask_n,
 		ipareg_parse_dummy,
-		0x00000818, 0x70, 10, 22, 1},
+		0x00000818, 0x70, 10, 23, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_HDR_METADATA_n] = {
 		ipareg_construct_endp_init_hdr_metadata_n,
 		ipareg_parse_dummy,
-		0x0000081c, 0x70, 0, 9, 1},
+		0x0000081c, 0x70, 0, 10, 1},
 	[IPA_HW_v4_0][IPA_CLKON_CFG] = {
 		ipareg_construct_clkon_cfg, ipareg_parse_clkon_cfg,
 		0x00000044, 0, 0, 0, 0},
@@ -3155,17 +2918,17 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 		0x00003044, 0x1000, 0, 0, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_CTRL_STATUS_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000864, 0x70, 0, 22, 1},
+		0x00000864, 0x70, 0, 23, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_PROD_CFG_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000CC8, 0x70, 10, 22, 1},
+		0x00000CC8, 0x70, 10, 23, 1},
 	[IPA_HW_v4_0][IPA_ENDP_INIT_RSRC_GRP_n] = {
 		ipareg_construct_endp_init_rsrc_grp_n_v3_5,
 		ipareg_parse_dummy,
-		0x00000838, 0x70, 0, 22, 1},
+		0x00000838, 0x70, 0, 23, 1},
 	[IPA_HW_v4_0][IPA_ENDP_YELLOW_RED_MARKER_CFG_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000CC0, 0x70, 10, 22, 1},
+		0x00000CC0, 0x70, 10, 23, 1},
 
 	/* IPA4.2 */
 	[IPA_HW_v4_2][IPA_IDLE_INDICATION_CFG] = {
@@ -3174,7 +2937,7 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v4_2][IPA_ENDP_INIT_HOL_BLOCK_TIMER_n] = {
 		ipareg_construct_endp_init_hol_block_timer_n_v4_2,
 		ipareg_parse_dummy,
-		0x00000830, 0x70, 8, 16, 1},
+		0x00000830, 0x70, 8, 17, 1},
 	[IPA_HW_v4_2][IPA_ENDP_FILTER_ROUTER_HSH_CFG_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		-1, 0, 0, 0, 0},
@@ -3218,9 +2981,6 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v4_5][IPA_COMP_CFG] = {
 		ipareg_construct_comp_cfg_v4_5, ipareg_parse_comp_cfg_v4_5,
 		0x0000003C, 0, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_STATE_TX_WRAPPER] = {
-		ipareg_construct_dummy, ipareg_parse_state_tx_wrapper_v4_5,
-		0x00000090, 0, 0, 0, 1 },
 	[IPA_HW_v4_5][IPA_STATE_FETCHER_MASK] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		-1, 0, 0, 0, 0},
@@ -3253,10 +3013,10 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 		0x000000E0, 0, 0, 0, 1},
 	[IPA_HW_v4_5][IPA_ENDP_YELLOW_RED_MARKER_CFG_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000860, 0x70, 13, 30, 1},
+		0x00000860, 0x70, 13, 31, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_MODE_n] = {
 		ipareg_construct_endp_init_mode_n_v4_5, ipareg_parse_dummy,
-		0x00000820, 0x70, 0, 12, 1},
+		0x00000820, 0x70, 0, 13, 1},
 	[IPA_HW_v4_5][IPA_TX_CFG] = {
 		ipareg_construct_tx_cfg_v4_5, ipareg_parse_tx_cfg_v4_5,
 		0x000001FC, 0, 0, 0, 0},
@@ -3274,75 +3034,45 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 		ipareg_construct_timers_xo_clk_div_cfg,
 		ipareg_parse_timers_xo_clk_div_cfg,
 		0x000000250, 0, 0, 0, 1},
-	[IPA_HW_v4_5][IPA_STAT_QUOTA_BASE_n] = {
-		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000700, 0x4, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_STAT_QUOTA_MASK_n] = {
-		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000708, 0x4, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_STAT_TETHERING_BASE_n] = {
-		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000710, 0x4, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_STAT_TETHERING_MASK_n] = {
-		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000718, 0x4, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_STAT_FILTER_IPV4_BASE] = {
-		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000720, 0, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_STAT_FILTER_IPV6_BASE] = {
-		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000724, 0, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_STAT_ROUTER_IPV4_BASE] = {
-		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000728, 0, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_STAT_ROUTER_IPV6_BASE] = {
-		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x0000072C, 0, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_STAT_DROP_CNT_BASE_n] = {
-		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000750, 0x4, 0, 0, 1},
-	[IPA_HW_v4_5][IPA_STAT_DROP_CNT_MASK_n] = {
-		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000758, 0x4, 0, 0, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_SEQ_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x0000083C, 0x70, 0, 12, 1},
+		0x0000083C, 0x70, 0, 13, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_CFG_n] = {
 		ipareg_construct_endp_init_cfg_n, ipareg_parse_dummy,
-		0x00000808, 0x70, 0, 30, 1},
+		0x00000808, 0x70, 0, 31, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_DEAGGR_n] = {
 		ipareg_construct_endp_init_deaggr_n,
 		ipareg_parse_dummy,
-		0x00000834, 0x70, 0, 12, 1},
+		0x00000834, 0x70, 0, 13, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_CTRL_n] = {
 		ipareg_construct_endp_init_ctrl_n_v4_0, ipareg_parse_dummy,
-		0x00000800, 0x70, 0, 30, 1},
+		0x00000800, 0x70, 0, 31, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_CTRL_SCND_n] = {
 		ipareg_construct_endp_init_ctrl_scnd_n, ipareg_parse_dummy,
-		0x00000804, 0x70, 0, 30, 1},
+		0x00000804, 0x70, 0, 31, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_CTRL_STATUS_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000864, 0x70, 0, 30, 1},
+		0x00000864, 0x70, 0, 31, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_PROD_CFG_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
-		0x00000CC8, 0x70, 13, 30, 1},
+		0x00000CC8, 0x70, 13, 31, 1},
 	[IPA_HW_v4_5][IPA_ENDP_FILTER_ROUTER_HSH_CFG_n] = {
 		ipareg_construct_hash_cfg_n, ipareg_parse_hash_cfg_n,
-		0x0000085C, 0x70, 0, 31, 1},
+		0x0000085C, 0x70, 0, 32, 1},
 	[IPA_HW_v4_5][IPA_ENDP_STATUS_n] = {
 		ipareg_construct_endp_status_n_v4_5, ipareg_parse_dummy,
-		0x00000840, 0x70, 0, 30, 1},
+		0x00000840, 0x70, 0, 31, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_NAT_n] = {
 		ipareg_construct_endp_init_nat_n, ipareg_parse_dummy,
-		0x0000080C, 0x70, 0, 12, 1},
+		0x0000080C, 0x70, 0, 13, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_CONN_TRACK_n] = {
 		ipareg_construct_endp_init_conn_track_n,
 		ipareg_parse_dummy,
-		0x00000850, 0x70, 0, 12, 1},
+		0x00000850, 0x70, 0, 13, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_RSRC_GRP_n] = {
 		ipareg_construct_endp_init_rsrc_grp_n_v4_5,
 		ipareg_parse_dummy,
-		0x00000838, 0x70, 0, 30, 1},
+		0x00000838, 0x70, 0, 31, 1},
 	[IPA_HW_v4_5][IPA_STAT_FILTER_IPV4_START_ID] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		-1, 0, 0, 0, 0},
@@ -3385,32 +3115,32 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v4_5][IPA_ENDP_INIT_HOL_BLOCK_EN_n] = {
 		ipareg_construct_endp_init_hol_block_en_n,
 		ipareg_parse_dummy,
-		0x0000082c, 0x70, 13, 30, 1},
+		0x0000082c, 0x70, 13, 31, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_HOL_BLOCK_TIMER_n] = {
 		ipareg_construct_endp_init_hol_block_timer_n_v4_5,
 		ipareg_parse_dummy,
-		0x00000830, 0x70, 13, 30, 1},
+		0x00000830, 0x70, 13, 31, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_AGGR_n] = {
 		ipareg_construct_endp_init_aggr_n_v4_5,
 		ipareg_parse_endp_init_aggr_n_v4_5,
-		0x00000824, 0x70, 0, 30, 1},
+		0x00000824, 0x70, 0, 31, 1},
 	[IPA_HW_v4_5][IPA_SW_AREA_RAM_DIRECT_ACCESS_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x000010000, 0x4, 0, 0, 0},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_HDR_n] = {
 		ipareg_construct_endp_init_hdr_n_v4_5, ipareg_parse_dummy,
-		0x00000810, 0x70, 0, 30, 1},
+		0x00000810, 0x70, 0, 31, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_HDR_EXT_n] = {
 		ipareg_construct_endp_init_hdr_ext_n_v4_5, ipareg_parse_dummy,
-		0x00000814, 0x70, 0, 30, 1},
+		0x00000814, 0x70, 0, 31, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_HDR_METADATA_n] = {
 		ipareg_construct_endp_init_hdr_metadata_n,
 		ipareg_parse_dummy,
-		0x0000081c, 0x70, 0, 12, 1},
+		0x0000081c, 0x70, 0, 13, 1},
 	[IPA_HW_v4_5][IPA_ENDP_INIT_HDR_METADATA_MASK_n] = {
 		ipareg_construct_endp_init_hdr_metadata_mask_n,
 		ipareg_parse_dummy,
-		0x00000818, 0x70, 13, 30, 1},
+		0x00000818, 0x70, 13, 31, 1},
 	[IPA_HW_v4_5][IPA_UC_MAILBOX_m_n] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
 		0x00082000, 0x4, 0, 0, 0},
@@ -3420,30 +3150,6 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v4_5][IPA_COAL_QMAP_CFG] = {
 		ipareg_construct_coal_qmap_cfg, ipareg_parse_coal_qmap_cfg,
 		0x00001810, 0, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_NAT_UC_EXTERNAL_CFG] = {
-		ipareg_construct_nat_uc_external_cfg,
-		ipareg_parse_nat_uc_external_cfg,
-		0x00000200, 0, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_NAT_UC_LOCAL_CFG] = {
-		ipareg_construct_nat_uc_local_cfg,
-		ipareg_parse_nat_uc_local_cfg,
-		0x00000204, 0, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_NAT_UC_SHARED_CFG] = {
-		ipareg_construct_nat_uc_shared_cfg,
-		ipareg_parse_nat_uc_shared_cfg,
-		0x00000208, 0, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_CONN_TRACK_UC_EXTERNAL_CFG] = {
-		ipareg_construct_conn_track_uc_external_cfg,
-		ipareg_parse_conn_track_uc_external_cfg,
-		0x00000230, 0, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_CONN_TRACK_UC_LOCAL_CFG] = {
-		ipareg_construct_conn_track_uc_local_cfg,
-		ipareg_parse_conn_track_uc_local_cfg,
-		0x00000234, 0, 0, 0, 0},
-	[IPA_HW_v4_5][IPA_CONN_TRACK_UC_SHARED_CFG] = {
-		ipareg_construct_conn_track_uc_shared_cfg,
-		ipareg_parse_conn_track_uc_shared_cfg,
-		0x00000238, 0, 0, 0, 0},
 };
 
 /*
@@ -3477,7 +3183,7 @@ void ipahal_print_all_regs(bool print_to_dmesg)
 
 		j = reg->n_start;
 
-		if (j == reg->n_end && (reg->n_ofst == 0)) {
+		if (j == reg->n_end) {
 			if (print_to_dmesg)
 				IPAHAL_DBG_REG("%s=0x%x\n",
 					ipahal_reg_name_str(i),
@@ -3486,17 +3192,17 @@ void ipahal_print_all_regs(bool print_to_dmesg)
 				IPAHAL_DBG_REG_IPC_ONLY("%s=0x%x\n",
 					ipahal_reg_name_str(i),
 					ipahal_read_reg_n(i, j));
-		} else {
-			for (; j <= reg->n_end; j++) {
-				if (print_to_dmesg)
-					IPAHAL_DBG_REG("%s_%u=0x%x\n",
-						ipahal_reg_name_str(i),
-						j, ipahal_read_reg_n(i, j));
-				else
-					IPAHAL_DBG_REG_IPC_ONLY("%s_%u=0x%x\n",
-						ipahal_reg_name_str(i),
-						j, ipahal_read_reg_n(i, j));
-			}
+		}
+
+		for (; j < reg->n_end; j++) {
+			if (print_to_dmesg)
+				IPAHAL_DBG_REG("%s_%u=0x%x\n",
+					ipahal_reg_name_str(i),
+					j, ipahal_read_reg_n(i, j));
+			else
+				IPAHAL_DBG_REG_IPC_ONLY("%s_%u=0x%x\n",
+					ipahal_reg_name_str(i),
+					j, ipahal_read_reg_n(i, j));
 		}
 	}
 }
@@ -3751,12 +3457,6 @@ u32 ipahal_get_reg_mn_ofst(enum ipahal_reg_name reg, u32 m, u32 n)
 		return -EINVAL;
 	}
 
-	if (!ipahal_ctx) {
-		IPAHAL_ERR_RL("ipahal_ctx is NULL\n");
-		WARN_ON_RATELIMIT_IPA(1);
-		return -EINVAL;
-	}
-
 	IPAHAL_DBG_LOW("get offset of %s m=%u n=%u\n",
 		ipahal_reg_name_str(reg), m, n);
 	offset = ipahal_reg_objs[ipahal_ctx->hw_type][reg].offset;
@@ -3798,7 +3498,7 @@ void ipahal_get_aggr_force_close_valmask(int ep_idx,
 	struct ipahal_reg_valmask *valmask)
 {
 	u32 shft;
-	u32 bmsk = 0;
+	u32 bmsk;
 
 	if (!valmask) {
 		IPAHAL_ERR("Input error\n");

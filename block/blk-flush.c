@@ -93,6 +93,9 @@ enum {
 	FLUSH_PENDING_TIMEOUT	= 5 * HZ,
 };
 
+
+
+
 static bool blk_kick_flush(struct request_queue *q,
 			   struct blk_flush_queue *fq);
 
@@ -402,7 +405,7 @@ static void mq_flush_data_end_io(struct request *rq, blk_status_t error)
 	blk_flush_complete_seq(rq, fq, REQ_FSEQ_DATA, error);
 	spin_unlock_irqrestore(&fq->mq_flush_lock, flags);
 
-	blk_mq_sched_restart(hctx);
+	blk_mq_run_hw_queue(hctx, true);
 }
 
 /**

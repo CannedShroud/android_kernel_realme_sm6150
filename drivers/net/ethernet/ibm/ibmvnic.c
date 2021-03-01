@@ -457,8 +457,8 @@ static void release_rx_pools(struct ibmvnic_adapter *adapter)
 
 		for (j = 0; j < rx_pool->size; j++) {
 			if (rx_pool->rx_buff[j].skb) {
-				dev_kfree_skb_any(rx_pool->rx_buff[j].skb);
-				rx_pool->rx_buff[j].skb = NULL;
+				dev_kfree_skb_any(rx_pool->rx_buff[i].skb);
+				rx_pool->rx_buff[i].skb = NULL;
 			}
 		}
 
@@ -1489,9 +1489,6 @@ static int do_reset(struct ibmvnic_adapter *adapter,
 		return 0;
 	}
 
-	/* refresh device's multicast list */
-	ibmvnic_set_multi(netdev);
-
 	/* kick napi */
 	for (i = 0; i < adapter->req_rx_queues; i++)
 		napi_schedule(&adapter->napi[i]);
@@ -1599,7 +1596,7 @@ static void ibmvnic_reset(struct ibmvnic_adapter *adapter,
 		}
 	}
 
-	rwi = kzalloc(sizeof(*rwi), GFP_ATOMIC);
+	rwi = kzalloc(sizeof(*rwi), GFP_KERNEL);
 	if (!rwi) {
 		mutex_unlock(&adapter->rwi_lock);
 		ibmvnic_close(netdev);
@@ -3560,10 +3557,12 @@ static void ibmvnic_handle_crq(union ibmvnic_crq *crq,
 			dev_err(dev, "Error %ld in VERSION_EXCHG_RSP\n", rc);
 			break;
 		}
-		ibmvnic_version =
-			    be16_to_cpu(crq->version_exchange_rsp.version);
 		dev_info(dev, "Partner protocol version is %d\n",
-			 ibmvnic_version);
+			 crq->version_exchange_rsp.version);
+		if (be16_to_cpu(crq->version_exchange_rsp.version) <
+		    ibmvnic_version)
+			ibmvnic_version =
+			    be16_to_cpu(crq->version_exchange_rsp.version);
 		send_cap_queries(adapter);
 		break;
 	case QUERY_CAPABILITY_RSP:

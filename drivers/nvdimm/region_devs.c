@@ -282,9 +282,7 @@ static ssize_t deep_flush_store(struct device *dev, struct device_attribute *att
 		return rc;
 	if (!flush)
 		return -EINVAL;
-	rc = nvdimm_flush(nd_region, NULL);
-	if (rc)
-		return rc;
+	nvdimm_flush(nd_region);
 
 	return len;
 }
@@ -1001,14 +999,8 @@ static struct nd_region *nd_region_create(struct nvdimm_bus *nvdimm_bus,
 	dev->parent = &nvdimm_bus->dev;
 	dev->type = dev_type;
 	dev->groups = ndr_desc->attr_groups;
-	dev->of_node = ndr_desc->of_node;
 	nd_region->ndr_size = resource_size(ndr_desc->res);
 	nd_region->ndr_start = ndr_desc->res->start;
-	if (ndr_desc->flush)
-		nd_region->flush = ndr_desc->flush;
-	else
-		nd_region->flush = NULL;
-
 	nd_device_register(dev);
 
 	return nd_region;
@@ -1049,24 +1041,11 @@ struct nd_region *nvdimm_volatile_region_create(struct nvdimm_bus *nvdimm_bus,
 }
 EXPORT_SYMBOL_GPL(nvdimm_volatile_region_create);
 
-int nvdimm_flush(struct nd_region *nd_region, struct bio *bio)
-{
-	int rc = 0;
-
-	if (!nd_region->flush)
-		rc = generic_nvdimm_flush(nd_region);
-	else {
-		if (nd_region->flush(nd_region, bio))
-			rc = -EIO;
-	}
-
-	return rc;
-}
 /**
  * nvdimm_flush - flush any posted write queues between the cpu and pmem media
  * @nd_region: blk or interleaved pmem region
  */
-int generic_nvdimm_flush(struct nd_region *nd_region)
+void nvdimm_flush(struct nd_region *nd_region)
 {
 	struct nd_region_data *ndrd = dev_get_drvdata(&nd_region->dev);
 	int i, idx;
@@ -1090,8 +1069,6 @@ int generic_nvdimm_flush(struct nd_region *nd_region)
 		if (ndrd_get_flush_wpq(ndrd, i, 0))
 			writeq(1, ndrd_get_flush_wpq(ndrd, i, idx));
 	wmb();
-
-	return 0;
 }
 EXPORT_SYMBOL_GPL(nvdimm_flush);
 
@@ -1134,47 +1111,6 @@ int nvdimm_has_cache(struct nd_region *nd_region)
 	return is_nd_pmem(&nd_region->dev);
 }
 EXPORT_SYMBOL_GPL(nvdimm_has_cache);
-
-struct conflict_context {
-	struct nd_region *nd_region;
-	resource_size_t start, size;
-};
-
-static int region_conflict(struct device *dev, void *data)
-{
-	struct nd_region *nd_region;
-	struct conflict_context *ctx = data;
-	resource_size_t res_end, region_end, region_start;
-
-	if (!is_memory(dev))
-		return 0;
-
-	nd_region = to_nd_region(dev);
-	if (nd_region == ctx->nd_region)
-		return 0;
-
-	res_end = ctx->start + ctx->size;
-	region_start = nd_region->ndr_start;
-	region_end = region_start + nd_region->ndr_size;
-	if (ctx->start >= region_start && ctx->start < region_end)
-		return -EBUSY;
-	if (res_end > region_start && res_end <= region_end)
-		return -EBUSY;
-	return 0;
-}
-
-int nd_region_conflict(struct nd_region *nd_region, resource_size_t start,
-		resource_size_t size)
-{
-	struct nvdimm_bus *nvdimm_bus = walk_to_nvdimm_bus(&nd_region->dev);
-	struct conflict_context ctx = {
-		.nd_region = nd_region,
-		.start = start,
-		.size = size,
-	};
-
-	return device_for_each_child(&nvdimm_bus->dev, &ctx, region_conflict);
-}
 
 void __exit nd_region_devs_exit(void)
 {

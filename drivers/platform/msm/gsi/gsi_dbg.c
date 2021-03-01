@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,9 +25,7 @@
 #define PRT_STAT(fmt, args...) \
 		pr_err(fmt, ## args)
 
-#ifdef CONFIG_DEBUG_FS
 static struct dentry *dent;
-#endif
 static char dbg_buff[4096];
 static void *gsi_ipc_logbuf_low;
 
@@ -50,7 +48,7 @@ static ssize_t gsi_dump_evt(struct file *file,
 	if (sizeof(dbg_buff) < count + 1)
 		return -EINVAL;
 
-	missing = copy_from_user(dbg_buff, buf, min(sizeof(dbg_buff), count));
+	missing = copy_from_user(dbg_buff, buf, count);
 	if (missing)
 		return -EFAULT;
 
@@ -163,7 +161,7 @@ static ssize_t gsi_dump_ch(struct file *file,
 	if (sizeof(dbg_buff) < count + 1)
 		return -EINVAL;
 
-	missing = copy_from_user(dbg_buff, buf, min(sizeof(dbg_buff), count));
+	missing = copy_from_user(dbg_buff, buf, count);
 	if (missing)
 		return -EFAULT;
 
@@ -286,7 +284,6 @@ static void gsi_dump_ch_stats(struct gsi_chan_ctx *ctx)
 	if (ctx->evtr)
 		PRT_STAT("compl_evt=%lu\n",
 			ctx->evtr->stats.completed);
-	PRT_STAT("userdata_in_use=%lu\n", ctx->stats.userdata_in_use);
 
 	PRT_STAT("ch_below_lo=%lu\n", ctx->stats.dp.ch_below_lo);
 	PRT_STAT("ch_below_hi=%lu\n", ctx->stats.dp.ch_below_hi);
@@ -304,7 +301,7 @@ static ssize_t gsi_dump_stats(struct file *file,
 	if (sizeof(dbg_buff) < count + 1)
 		goto error;
 
-	if (copy_from_user(dbg_buff, buf, min(sizeof(dbg_buff), count)))
+	if (copy_from_user(dbg_buff, buf, count))
 		goto error;
 
 	dbg_buff[count] = '\0';
@@ -363,7 +360,7 @@ static ssize_t gsi_enable_dp_stats(struct file *file,
 	if (sizeof(dbg_buff) < count + 1)
 		goto error;
 
-	if (copy_from_user(dbg_buff, buf, min(sizeof(dbg_buff), count)))
+	if (copy_from_user(dbg_buff, buf, count))
 		goto error;
 
 	dbg_buff[count] = '\0';
@@ -423,7 +420,7 @@ static ssize_t gsi_set_max_elem_dp_stats(struct file *file,
 	if (sizeof(dbg_buff) < count + 1)
 		goto error;
 
-	missing = copy_from_user(dbg_buff, buf, min(sizeof(dbg_buff), count));
+	missing = copy_from_user(dbg_buff, buf, count);
 	if (missing)
 		goto error;
 
@@ -545,7 +542,7 @@ static ssize_t gsi_rst_stats(struct file *file,
 	if (sizeof(dbg_buff) < count + 1)
 		goto error;
 
-	if (copy_from_user(dbg_buff, buf, min(sizeof(dbg_buff), count)))
+	if (copy_from_user(dbg_buff, buf, count))
 		goto error;
 
 	dbg_buff[count] = '\0';
@@ -584,7 +581,7 @@ static ssize_t gsi_print_dp_stats(struct file *file,
 	if (sizeof(dbg_buff) < count + 1)
 		goto error;
 
-	if (copy_from_user(dbg_buff, buf, min(sizeof(dbg_buff), count)))
+	if (copy_from_user(dbg_buff, buf, count))
 		goto error;
 
 	dbg_buff[count] = '\0';
@@ -641,7 +638,7 @@ static ssize_t gsi_enable_ipc_low(struct file *file,
 	if (sizeof(dbg_buff) < count + 1)
 		return -EFAULT;
 
-	missing = copy_from_user(dbg_buff, ubuf, min(sizeof(dbg_buff), count));
+	missing = copy_from_user(dbg_buff, ubuf, count);
 	if (missing)
 		return -EFAULT;
 
@@ -699,7 +696,6 @@ const struct file_operations gsi_ipc_low_ops = {
 	.write = gsi_enable_ipc_low,
 };
 
-#ifdef CONFIG_DEBUG_FS
 void gsi_debugfs_init(void)
 {
 	static struct dentry *dfile;
@@ -771,5 +767,4 @@ void gsi_debugfs_init(void)
 fail:
 	debugfs_remove_recursive(dent);
 }
-#endif
 

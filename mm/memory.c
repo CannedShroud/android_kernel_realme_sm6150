@@ -1333,9 +1333,6 @@ again:
 		if (pte_none(ptent))
 			continue;
 
-		if (need_resched())
-			break;
-
 		if (pte_present(ptent)) {
 			struct page *page;
 
@@ -1434,11 +1431,8 @@ again:
 	if (force_flush) {
 		force_flush = 0;
 		tlb_flush_mmu_free(tlb);
-	}
-
-	if (addr != end) {
-		cond_resched();
-		goto again;
+		if (addr != end)
+			goto again;
 	}
 
 	return addr;
@@ -1824,21 +1818,14 @@ static int insert_pfn(struct vm_area_struct *vma, unsigned long addr,
 			 * in may not match the PFN we have mapped if the
 			 * mapped PFN is a writeable COW page.  In the mkwrite
 			 * case we are creating a writable PTE for a shared
-			 * mapping and we expect the PFNs to match. If they
-			 * don't match, we are likely racing with block
-			 * allocation and mapping invalidation so just skip the
-			 * update.
+			 * mapping and we expect the PFNs to match.
 			 */
-			if (pte_pfn(*pte) != pfn_t_to_pfn(pfn)) {
-				WARN_ON_ONCE(!is_zero_pfn(pte_pfn(*pte)));
+			if (WARN_ON_ONCE(pte_pfn(*pte) != pfn_t_to_pfn(pfn)))
 				goto out_unlock;
-			}
-			entry = pte_mkyoung(*pte);
-			entry = maybe_mkwrite(pte_mkdirty(entry), vma->vm_flags);
-			if (ptep_set_access_flags(vma, addr, pte, entry, 1))
-				update_mmu_cache(vma, addr, pte);
-		}
-		goto out_unlock;
+			entry = *pte;
+			goto out_mkwrite;
+		} else
+			goto out_unlock;
 	}
 
 	/* Ok, finally just insert the thing.. */
@@ -1847,6 +1834,7 @@ static int insert_pfn(struct vm_area_struct *vma, unsigned long addr,
 	else
 		entry = pte_mkspecial(pfn_t_pte(pfn, prot));
 
+out_mkwrite:
 	if (mkwrite) {
 		entry = pte_mkyoung(entry);
 		entry = maybe_mkwrite(pte_mkdirty(entry), vma->vm_flags);
@@ -2543,10 +2531,6 @@ static int do_page_mkwrite(struct vm_fault *vmf)
 
 	vmf->flags = FAULT_FLAG_WRITE|FAULT_FLAG_MKWRITE;
 
-	if (vmf->vma->vm_file &&
-	    IS_SWAPFILE(vmf->vma->vm_file->f_mapping->host))
-		return VM_FAULT_SIGBUS;
-
 	ret = vmf->vma->vm_ops->page_mkwrite(vmf);
 	/* Restore original flags so that caller is not surprised */
 	vmf->flags = old_flags;
@@ -3053,7 +3037,7 @@ int do_swap_page(struct vm_fault *vmf)
 	struct mem_cgroup *memcg;
 	swp_entry_t entry;
 	struct swap_info_struct *si;
-	bool skip_swapcache = false;
+	int swp_cnt;
 	pte_t pte;
 	int locked;
 	int exclusive = 0;
@@ -3095,24 +3079,15 @@ int do_swap_page(struct vm_fault *vmf)
 
 
 	delayacct_set_flag(DELAYACCT_PF_SWAPIN);
-
-	/*
-	 * lookup_swap_cache below can fail and before the SWP_SYNCHRONOUS_IO
-	 * check is made, another process can populate the swapcache, delete
-	 * the swap entry and decrement the swap count. So decide on taking
-	 * the SWP_SYNCHRONOUS_IO path before the lookup. In the event of the
-	 * race described, the victim process will find a swap_count > 1
-	 * and can then take the readahead path instead of SWP_SYNCHRONOUS_IO.
-	 */
 	si = swp_swap_info(entry);
-	if (si->flags & SWP_SYNCHRONOUS_IO && __swap_count(si, entry) == 1)
-		skip_swapcache = true;
-
+	swp_cnt = __swap_count(si, entry);
 	page = lookup_swap_cache(entry, vma, vmf->address);
 	swapcache = page;
 
 	if (!page) {
-		if (skip_swapcache) {
+
+		if (si->flags & SWP_SYNCHRONOUS_IO && swp_cnt == 1) {
+			/* skip swapcache */
 			page = alloc_page_vma(GFP_HIGHUSER_MOVABLE, vma,
 							vmf->address);
 			if (page) {
@@ -3436,29 +3411,6 @@ static int __do_fault(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
 	int ret;
-
-	/*
-	 * Preallocate pte before we take page_lock because this might lead to
-	 * deadlocks for memcg reclaim which waits for pages under writeback:
-	 *				lock_page(A)
-	 *				SetPageWriteback(A)
-	 *				unlock_page(A)
-	 * lock_page(B)
-	 *				lock_page(B)
-	 * pte_alloc_pne
-	 *   shrink_page_list
-	 *     wait_on_page_writeback(A)
-	 *				SetPageWriteback(B)
-	 *				unlock_page(B)
-	 *				# flush A, B to clear the writeback
-	 */
-	if (pmd_none(*vmf->pmd) && !vmf->prealloc_pte) {
-		vmf->prealloc_pte = pte_alloc_one(vmf->vma->vm_mm,
-						  vmf->address);
-		if (!vmf->prealloc_pte)
-			return VM_FAULT_OOM;
-		smp_wmb(); /* See comment in __pte_alloc() */
-	}
 
 	ret = vma->vm_ops->fault(vmf);
 	if (unlikely(ret & (VM_FAULT_ERROR | VM_FAULT_NOPAGE | VM_FAULT_RETRY |
@@ -3979,36 +3931,10 @@ static int do_fault(struct vm_fault *vmf)
 	struct vm_area_struct *vma = vmf->vma;
 	int ret;
 
-	/*
-	 * The VMA was not fully populated on mmap() or missing VM_DONTEXPAND
-	 */
-	if (!vma->vm_ops->fault) {
-		/*
-		 * If we find a migration pmd entry or a none pmd entry, which
-		 * should never happen, return SIGBUS
-		 */
-		if (unlikely(!pmd_present(*vmf->pmd)))
-			ret = VM_FAULT_SIGBUS;
-		else {
-			vmf->pte = pte_offset_map_lock(vmf->vma->vm_mm,
-						       vmf->pmd,
-						       vmf->address,
-						       &vmf->ptl);
-			/*
-			 * Make sure this is not a temporary clearing of pte
-			 * by holding ptl and checking again. A R/M/W update
-			 * of pte involves: take ptl, clearing the pte so that
-			 * we don't have concurrent modification by hardware
-			 * followed by an update.
-			 */
-			if (unlikely(pte_none(*vmf->pte)))
-				ret = VM_FAULT_SIGBUS;
-			else
-				ret = VM_FAULT_NOPAGE;
-
-			pte_unmap_unlock(vmf->pte, vmf->ptl);
-		}
-	} else if (!(vmf->flags & FAULT_FLAG_WRITE))
+	/* The VMA was not fully populated on mmap() or missing VM_DONTEXPAND */
+	if (!vma->vm_ops->fault)
+		ret = VM_FAULT_SIGBUS;
+	else if (!(vmf->flags & FAULT_FLAG_WRITE))
 		ret = do_read_fault(vmf);
 	else if (!(vmf->vma_flags & VM_SHARED))
 		ret = do_cow_fault(vmf);
@@ -4581,9 +4507,9 @@ int __handle_speculative_fault(struct mm_struct *mm, unsigned long address,
 		return VM_FAULT_RETRY;
 	}
 
-	mem_cgroup_enter_user_fault();
+	mem_cgroup_oom_enable();
 	ret = handle_pte_fault(&vmf);
-	mem_cgroup_exit_user_fault();
+	mem_cgroup_oom_disable();
 
 	/*
 	 * If there is no need to retry, don't return the vma to the caller.
@@ -4668,7 +4594,7 @@ int handle_mm_fault(struct vm_area_struct *vma, unsigned long address,
 	 * space.  Kernel faults are handled more gracefully.
 	 */
 	if (flags & FAULT_FLAG_USER)
-		mem_cgroup_enter_user_fault();
+		mem_cgroup_oom_enable();
 
 	if (unlikely(is_vm_hugetlb_page(vma)))
 		ret = hugetlb_fault(vma->vm_mm, vma, address, flags);
@@ -4676,7 +4602,7 @@ int handle_mm_fault(struct vm_area_struct *vma, unsigned long address,
 		ret = __handle_mm_fault(vma, address, flags);
 
 	if (flags & FAULT_FLAG_USER) {
-		mem_cgroup_exit_user_fault();
+		mem_cgroup_oom_disable();
 		/*
 		 * The task may have entered a memcg OOM situation but
 		 * if the allocation error was handled gracefully (no

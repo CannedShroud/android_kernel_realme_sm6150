@@ -44,7 +44,7 @@ static const char * const power_supply_type_text[] = {
 	"Unknown", "Battery", "UPS", "Mains", "USB",
 	"USB_DCP", "USB_CDP", "USB_ACA", "USB_C",
 	"USB_PD", "USB_PD_DRP", "BrickID",
-	"USB_HVDCP", "USB_HVDCP_3", "USB_HVDCP_3P5", "Wireless", "USB_FLOAT",
+	"USB_HVDCP", "USB_HVDCP_3", "Wireless", "USB_FLOAT",
 	"BMS", "Parallel", "Main", "Wipower", "USB_C_UFP", "USB_C_DFP",
 	"Charge_Pump",
 };
@@ -60,7 +60,8 @@ static const char * const power_supply_charge_type_text[] = {
 static const char * const power_supply_health_text[] = {
 	"Unknown", "Good", "Overheat", "Dead", "Over voltage",
 	"Unspecified failure", "Cold", "Watchdog timer expire",
-	"Safety timer expire", "Over current", "Warm", "Cool", "Hot"
+	"Safety timer expire",
+	"Warm", "Cool", "Hot"
 };
 
 static const char * const power_supply_technology_text[] = {
@@ -111,8 +112,7 @@ static ssize_t power_supply_show_property(struct device *dev,
 				dev_dbg(dev, "driver has no data for `%s' property\n",
 					attr->attr.name);
 			else if (ret != -ENODEV && ret != -EAGAIN)
-				dev_err_ratelimited(dev,
-					"driver failed to report `%s' property: %zd\n",
+				dev_err(dev, "driver failed to report `%s' property: %zd\n",
 					attr->attr.name, ret);
 			return ret;
 		}
@@ -153,9 +153,6 @@ static ssize_t power_supply_show_property(struct device *dev,
 		return scnprintf(buf, PAGE_SIZE, "%s\n",
 			       power_supply_health_text[value.intval]);
 	else if (off == POWER_SUPPLY_PROP_CONNECTOR_HEALTH)
-		return scnprintf(buf, PAGE_SIZE, "%s\n",
-			       power_supply_health_text[value.intval]);
-	else if (off == POWER_SUPPLY_PROP_SKIN_HEALTH)
 		return scnprintf(buf, PAGE_SIZE, "%s\n",
 			       power_supply_health_text[value.intval]);
 	else if (off >= POWER_SUPPLY_PROP_MODEL_NAME)
@@ -225,6 +222,57 @@ static ssize_t power_supply_store_property(struct device *dev,
 /* Must be in the same order as POWER_SUPPLY_PROP_* */
 static struct device_attribute power_supply_attrs[] = {
 	/* Properties of type `int' */
+#ifdef VENDOR_EDIT
+/* Yichun.Chen  PSW.BSP.CHG  2019-04-08  for charge */
+	POWER_SUPPLY_ATTR(charge_technology),
+	POWER_SUPPLY_ATTR(fastcharger),
+	POWER_SUPPLY_ATTR(mmi_charging_enable),
+	POWER_SUPPLY_ATTR(otg_switch),
+	POWER_SUPPLY_ATTR(otg_online),
+        POWER_SUPPLY_ATTR(fast_chg_type),
+	POWER_SUPPLY_ATTR(batt_fcc),
+	POWER_SUPPLY_ATTR(batt_soh),
+	POWER_SUPPLY_ATTR(batt_cc),
+	POWER_SUPPLY_ATTR(batt_rm),
+	POWER_SUPPLY_ATTR(batt_soc),
+	POWER_SUPPLY_ATTR(authenticate),
+	POWER_SUPPLY_ATTR(charge_timeout),
+	POWER_SUPPLY_ATTR(notify_code),
+    POWER_SUPPLY_ATTR(cool_down),
+	POWER_SUPPLY_ATTR(adapter_fw_update),
+	POWER_SUPPLY_ATTR(voocchg_ing),
+	POWER_SUPPLY_ATTR(chargerid_volt),
+	POWER_SUPPLY_ATTR(ship_mode),
+	POWER_SUPPLY_ATTR(call_mode),
+	POWER_SUPPLY_ATTR(usb_status),
+	POWER_SUPPLY_ATTR(usbtemp_volt_l),
+	POWER_SUPPLY_ATTR(usbtemp_volt_r),
+
+#ifdef CONFIG_OPPO_CHIP_SOC_NODE
+	POWER_SUPPLY_ATTR(chip_soc),
+#endif
+
+#ifdef CONFIG_OPPO_SHORT_USERSPACE
+	POWER_SUPPLY_ATTR(short_c_batt_limit_chg),
+	POWER_SUPPLY_ATTR(short_c_batt_limit_rechg),
+#else
+	POWER_SUPPLY_ATTR(short_c_batt_update_change),
+	POWER_SUPPLY_ATTR(short_c_batt_in_idle),
+	POWER_SUPPLY_ATTR(short_c_batt_cv_status),
+#endif
+	
+#ifdef CONFIG_OPPO_SHORT_HW_CHECK
+	POWER_SUPPLY_ATTR(short_c_hw_feature),
+	POWER_SUPPLY_ATTR(short_c_hw_status),
+#endif
+	
+#ifdef CONFIG_OPPO_SHORT_IC_CHECK
+	POWER_SUPPLY_ATTR(short_ic_otp_status),
+	POWER_SUPPLY_ATTR(short_ic_volt_thresh),
+	POWER_SUPPLY_ATTR(short_ic_otp_value),
+#endif
+#endif
+
 	POWER_SUPPLY_ATTR(status),
 	POWER_SUPPLY_ATTR(charge_type),
 	POWER_SUPPLY_ATTR(health),
@@ -391,24 +439,15 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(toggle_stat),
 	POWER_SUPPLY_ATTR(main_fcc_max),
 	POWER_SUPPLY_ATTR(fg_reset),
-	POWER_SUPPLY_ATTR(qc_opti_disable),
 	POWER_SUPPLY_ATTR(cc_soc),
-	POWER_SUPPLY_ATTR(batt_age_level),
 	POWER_SUPPLY_ATTR(voltage_vph),
+	POWER_SUPPLY_ATTR(batt_age_level),
 	POWER_SUPPLY_ATTR(chip_version),
+	POWER_SUPPLY_ATTR(qc_opti_disable),
 	POWER_SUPPLY_ATTR(therm_icl_limit),
-	POWER_SUPPLY_ATTR(dc_reset),
-	POWER_SUPPLY_ATTR(scale_mode_en),
 	POWER_SUPPLY_ATTR(voltage_max_limit),
+	POWER_SUPPLY_ATTR(dc_reset),
 	POWER_SUPPLY_ATTR(real_capacity),
-	POWER_SUPPLY_ATTR(esr_sw_control),
-	POWER_SUPPLY_ATTR(force_main_icl),
-	POWER_SUPPLY_ATTR(force_main_fcc),
-	POWER_SUPPLY_ATTR(comp_clamp_level),
-	POWER_SUPPLY_ATTR(adapter_cc_mode),
-	POWER_SUPPLY_ATTR(skin_health),
-	POWER_SUPPLY_ATTR(apsd_rerun),
-	POWER_SUPPLY_ATTR(apsd_timeout),
 	/* Charge pump properties */
 	POWER_SUPPLY_ATTR(cp_status1),
 	POWER_SUPPLY_ATTR(cp_status2),
@@ -416,7 +455,6 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(cp_switcher_en),
 	POWER_SUPPLY_ATTR(cp_die_temp),
 	POWER_SUPPLY_ATTR(cp_isns),
-	POWER_SUPPLY_ATTR(cp_isns_slave),
 	POWER_SUPPLY_ATTR(cp_toggle_switcher),
 	POWER_SUPPLY_ATTR(cp_irq_status),
 	POWER_SUPPLY_ATTR(cp_ilim),
@@ -506,10 +544,14 @@ int power_supply_uevent(struct device *dev, struct kobj_uevent_env *env)
 	char *prop_buf;
 	char *attrname;
 
+	dev_dbg(dev, "uevent\n");
+
 	if (!psy || !psy->desc) {
 		dev_dbg(dev, "No power supply yet\n");
 		return ret;
 	}
+
+	dev_dbg(dev, "POWER_SUPPLY_NAME=%s\n", psy->desc->name);
 
 	ret = add_uevent_var(env, "POWER_SUPPLY_NAME=%s", psy->desc->name);
 	if (ret)
@@ -545,6 +587,8 @@ int power_supply_uevent(struct device *dev, struct kobj_uevent_env *env)
 			ret = -ENOMEM;
 			goto out;
 		}
+
+		dev_dbg(dev, "prop %s=%s\n", attrname, prop_buf);
 
 		ret = add_uevent_var(env, "POWER_SUPPLY_%s=%s", attrname, prop_buf);
 		kfree(attrname);

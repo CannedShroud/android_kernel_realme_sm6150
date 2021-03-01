@@ -30,9 +30,9 @@ Required properties:
 - vdda-pll-supply   : phandle to PHY PLL and Power-Gen block power supply
 - clocks	    : List of phandle and clock specifier pairs
 - clock-names       : List of clock input name strings sorted in the same
-		      order as the clocks property. "ref_clk_src",
+		      order as the clocks property. "ref_clk_src", "ref_clk",
 		      "tx_iface_clk" & "rx_iface_clk" are mandatory but
-		      "ref_clk_parent" and "ref_clk" are optional
+		      "ref_clk_parent" is optional
 
 Optional properties:
 - vdda-phy-max-microamp : specifies max. load that can be drawn from phy supply
@@ -43,8 +43,6 @@ Optional properties:
 - vddp-ref-clk-max-uV : specifies max voltage that can be set for reference clock supply
 - qcom,disable-lpm : disable various LPM mechanisms in UFS for platform compatibility
   (limit link to PWM Gear-1, 1-lane slow mode; disable hibernate, and avoid suspend/resume)
-- vccq-parent-supply   : phandle to UFS device's VCCQ parent power supply
-- vccq-parent-max-microamp : specifies max. load that can be drawn from the VCCQ's parent supply
 
 Example:
 

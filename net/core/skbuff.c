@@ -82,6 +82,89 @@ static struct kmem_cache *skbuff_fclone_cache __read_mostly;
 int sysctl_max_skb_frags __read_mostly = MAX_SKB_FRAGS;
 EXPORT_SYMBOL(sysctl_max_skb_frags);
 
+#ifdef VENDOR_EDIT
+//Junyuan.Huang@PSW.CN.WiFi.Network.1471780, 2018/06/26,
+//Add for limit speed function
+static struct kmem_cache *skbuff_cb_store_cache __read_mostly;
+
+/* Control buffer save/restore for IMQ devices */
+struct skb_cb_table {
+	char			cb[48] __aligned(8);
+	void			*cb_next;
+	atomic_t		refcnt;
+};
+
+static DEFINE_SPINLOCK(skb_cb_store_lock);
+
+int skb_save_cb(struct sk_buff *skb)
+{
+	struct skb_cb_table *next;
+
+	next = kmem_cache_alloc(skbuff_cb_store_cache, GFP_ATOMIC);
+	if (!next)
+		return -ENOMEM;
+
+	BUILD_BUG_ON(sizeof(skb->cb) != sizeof(next->cb));
+
+	memcpy(next->cb, skb->cb, sizeof(skb->cb));
+	next->cb_next = skb->cb_next;
+
+	atomic_set(&next->refcnt, 1);
+
+	skb->cb_next = next;
+	return 0;
+}
+EXPORT_SYMBOL(skb_save_cb);
+
+int skb_restore_cb(struct sk_buff *skb)
+{
+	struct skb_cb_table *next;
+
+	if (!skb->cb_next)
+		return 0;
+
+	next = skb->cb_next;
+
+	BUILD_BUG_ON(sizeof(skb->cb) != sizeof(next->cb));
+
+	memcpy(skb->cb, next->cb, sizeof(skb->cb));
+	skb->cb_next = next->cb_next;
+
+	spin_lock(&skb_cb_store_lock);
+
+	if (atomic_dec_and_test(&next->refcnt))
+		kmem_cache_free(skbuff_cb_store_cache, next);
+
+	spin_unlock(&skb_cb_store_lock);
+
+	return 0;
+}
+EXPORT_SYMBOL(skb_restore_cb);
+
+static void skb_copy_stored_cb(struct sk_buff *   , const struct sk_buff *     ) __attribute__ ((unused));
+static void skb_copy_stored_cb(struct sk_buff *new, const struct sk_buff *__old)
+{
+	struct skb_cb_table *next;
+	struct sk_buff *old;
+
+	if (!__old->cb_next) {
+		new->cb_next = NULL;
+		return;
+	}
+
+	spin_lock(&skb_cb_store_lock);
+
+	old = (struct sk_buff *)__old;
+
+	next = old->cb_next;
+	atomic_inc(&next->refcnt);
+	new->cb_next = next;
+
+	spin_unlock(&skb_cb_store_lock);
+}
+#endif /* VENDOR_EDIT */
+
+
 /**
  *	skb_panic - private function for out-of-line support
  *	@skb:	buffer
@@ -182,9 +265,6 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 	struct sk_buff *skb;
 	u8 *data;
 	bool pfmemalloc;
-
-	if (IS_ENABLED(CONFIG_FORCE_ALLOC_FROM_DMA_ZONE))
-		gfp_mask |= GFP_DMA;
 
 	cache = (flags & SKB_ALLOC_FCLONE)
 		? skbuff_fclone_cache : skbuff_head_cache;
@@ -340,9 +420,6 @@ static void *__netdev_alloc_frag(unsigned int fragsz, gfp_t gfp_mask)
 	unsigned long flags;
 	void *data;
 
-	if (IS_ENABLED(CONFIG_FORCE_ALLOC_FROM_DMA_ZONE))
-		gfp_mask |= GFP_DMA;
-
 	local_irq_save(flags);
 	nc = this_cpu_ptr(&netdev_alloc_cache);
 	data = page_frag_alloc(nc, fragsz, gfp_mask);
@@ -359,8 +436,6 @@ static void *__netdev_alloc_frag(unsigned int fragsz, gfp_t gfp_mask)
  */
 void *netdev_alloc_frag(unsigned int fragsz)
 {
-	fragsz = SKB_DATA_ALIGN(fragsz);
-
 	return __netdev_alloc_frag(fragsz, GFP_ATOMIC | __GFP_COLD);
 }
 EXPORT_SYMBOL(netdev_alloc_frag);
@@ -374,8 +449,6 @@ static void *__napi_alloc_frag(unsigned int fragsz, gfp_t gfp_mask)
 
 void *napi_alloc_frag(unsigned int fragsz)
 {
-	fragsz = SKB_DATA_ALIGN(fragsz);
-
 	return __napi_alloc_frag(fragsz, GFP_ATOMIC | __GFP_COLD);
 }
 EXPORT_SYMBOL(napi_alloc_frag);
@@ -403,9 +476,6 @@ struct sk_buff *__netdev_alloc_skb(struct net_device *dev, unsigned int len,
 	void *data;
 
 	len += NET_SKB_PAD;
-
-	if (IS_ENABLED(CONFIG_FORCE_ALLOC_FROM_DMA_ZONE))
-		gfp_mask |= GFP_DMA;
 
 	if ((len > SKB_WITH_OVERHEAD(PAGE_SIZE)) ||
 	    (gfp_mask & (__GFP_DIRECT_RECLAIM | GFP_DMA))) {
@@ -624,6 +694,31 @@ void skb_release_head_state(struct sk_buff *skb)
 		WARN_ON(in_irq());
 		skb->destructor(skb);
 	}
+#ifdef VENDOR_EDIT
+//Junyuan.Huang@PSW.CN.WiFi.Network.1471780, 2018/06/26,
+//Add for limit speed function
+	/*
+	 * This should not happen. When it does, avoid memleak by restoring
+	 * the chain of cb-backups.
+	 */
+	while (skb->cb_next != NULL) {
+		if (net_ratelimit())
+			pr_warn("IMQ: kfree_skb: skb->cb_next: %08x\n",
+				(unsigned int)(uintptr_t)skb->cb_next);
+
+		skb_restore_cb(skb);
+	}
+	/*
+	 * This should not happen either, nf_queue_entry is nullified in
+	 * imq_dev_xmit(). If we have non-NULL nf_queue_entry then we are
+	 * leaking entry pointers, maybe memory. We don't know if this is
+	 * pointer to already freed memory, or should this be freed.
+	 * If this happens we need to add refcounting, etc for nf_queue_entry.
+	 */
+	if (skb->nf_queue_entry && net_ratelimit())
+		pr_warn("%s\n", "IMQ: kfree_skb: skb->nf_queue_entry != NULL");
+#endif /* VENDOR_EDIT */
+
 #if IS_ENABLED(CONFIG_NF_CONNTRACK)
 	nf_conntrack_put(skb_nfct(skb));
 #endif
@@ -813,6 +908,14 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
 	new->sp			= secpath_get(old->sp);
 #endif
 	__nf_copy(new, old, false);
+
+#ifdef VENDOR_EDIT
+//Junyuan.Huang@PSW.CN.WiFi.Network.1471780, 2018/06/26,
+//Add for limit speed function
+	new->cb_next = NULL;
+	/*skb_copy_stored_cb(new, old);*/
+#endif /* VENDOR_EDIT */
+
 
 	/* Note : this field could be in headers_start/headers_end section
 	 * It is not yet because we do not want to have a 16 bit hole
@@ -2312,7 +2415,6 @@ do_frag_list:
 		kv.iov_base = skb->data + offset;
 		kv.iov_len = slen;
 		memset(&msg, 0, sizeof(msg));
-		msg.msg_flags = MSG_DONTWAIT;
 
 		ret = kernel_sendmsg_locked(sk, &msg, &kv, 1, slen);
 		if (ret <= 0)
@@ -3527,25 +3629,6 @@ struct sk_buff *skb_segment(struct sk_buff *head_skb,
 	int pos;
 	int dummy;
 
-	if (list_skb && !list_skb->head_frag && skb_headlen(list_skb) &&
-	    (skb_shinfo(head_skb)->gso_type & SKB_GSO_DODGY)) {
-		/* gso_size is untrusted, and we have a frag_list with a linear
-		 * non head_frag head.
-		 *
-		 * (we assume checking the first list_skb member suffices;
-		 * i.e if either of the list_skb members have non head_frag
-		 * head, then the first one has too).
-		 *
-		 * If head_skb's headlen does not fit requested gso_size, it
-		 * means that the frag_list members do NOT terminate on exact
-		 * gso_size boundaries. Hence we cannot perform skb_frag_t page
-		 * sharing. Therefore we must fallback to copying the frag_list
-		 * skbs; we do so by disabling SG.
-		 */
-		if (mss != GSO_BY_FRAGS && mss != skb_headlen(head_skb))
-			features &= ~NETIF_F_SG;
-	}
-
 	__skb_push(head_skb, doffset);
 	proto = skb_network_protocol(head_skb, &dummy);
 	if (unlikely(!proto))
@@ -3841,7 +3924,7 @@ int skb_gro_receive(struct sk_buff **head, struct sk_buff *skb)
 	struct sk_buff *lp, *p = *head;
 	unsigned int delta_truesize;
 
-	if (unlikely(p->len + len >= 65536 || NAPI_GRO_CB(skb)->flush))
+	if (unlikely(p->len + len >= 65536))
 		return -E2BIG;
 
 	lp = NAPI_GRO_CB(p)->last;
@@ -3956,6 +4039,16 @@ void __init skb_init(void)
 						0,
 						SLAB_HWCACHE_ALIGN|SLAB_PANIC,
 						NULL);
+#ifdef VENDOR_EDIT
+//Junyuan.Huang@PSW.CN.WiFi.Network.1471780, 2018/06/26,
+//Add for limit speed function
+	skbuff_cb_store_cache = kmem_cache_create("skbuff_cb_store_cache",
+						  sizeof(struct skb_cb_table),
+						  0,
+						  SLAB_HWCACHE_ALIGN|SLAB_PANIC,
+						  NULL);
+#endif /* VENDOR_EDIT */
+
 }
 
 static int
@@ -4919,10 +5012,6 @@ void skb_scrub_packet(struct sk_buff *skb, bool xnet)
 	nf_reset(skb);
 	nf_reset_trace(skb);
 
-#ifdef CONFIG_NET_SWITCHDEV
-	skb->offload_fwd_mark = 0;
-#endif
-
 	if (!xnet)
 		return;
 
@@ -4969,45 +5058,6 @@ unsigned int skb_gso_transport_seglen(const struct sk_buff *skb)
 EXPORT_SYMBOL_GPL(skb_gso_transport_seglen);
 
 /**
- * skb_gso_size_check - check the skb size, considering GSO_BY_FRAGS
- *
- * There are a couple of instances where we have a GSO skb, and we
- * want to determine what size it would be after it is segmented.
- *
- * We might want to check:
- * -    L3+L4+payload size (e.g. IP forwarding)
- * - L2+L3+L4+payload size (e.g. sanity check before passing to driver)
- *
- * This is a helper to do that correctly considering GSO_BY_FRAGS.
- *
- * @seg_len: The segmented length (from skb_gso_*_seglen). In the
- *           GSO_BY_FRAGS case this will be [header sizes + GSO_BY_FRAGS].
- *
- * @max_len: The maximum permissible length.
- *
- * Returns true if the segmented length <= max length.
- */
-static inline bool skb_gso_size_check(const struct sk_buff *skb,
-				      unsigned int seg_len,
-				      unsigned int max_len) {
-	const struct skb_shared_info *shinfo = skb_shinfo(skb);
-	const struct sk_buff *iter;
-
-	if (shinfo->gso_size != GSO_BY_FRAGS)
-		return seg_len <= max_len;
-
-	/* Undo this so we can re-use header sizes */
-	seg_len -= GSO_BY_FRAGS;
-
-	skb_walk_frags(skb, iter) {
-		if (seg_len + skb_headlen(iter) > max_len)
-			return false;
-	}
-
-	return true;
-}
-
-/**
  * skb_gso_validate_mtu - Return in case such skb fits a given MTU
  *
  * @skb: GSO skb
@@ -5018,24 +5068,26 @@ static inline bool skb_gso_size_check(const struct sk_buff *skb,
  */
 bool skb_gso_validate_mtu(const struct sk_buff *skb, unsigned int mtu)
 {
-	return skb_gso_size_check(skb, skb_gso_network_seglen(skb), mtu);
+	const struct skb_shared_info *shinfo = skb_shinfo(skb);
+	const struct sk_buff *iter;
+	unsigned int hlen;
+
+	hlen = skb_gso_network_seglen(skb);
+
+	if (shinfo->gso_size != GSO_BY_FRAGS)
+		return hlen <= mtu;
+
+	/* Undo this so we can re-use header sizes */
+	hlen -= GSO_BY_FRAGS;
+
+	skb_walk_frags(skb, iter) {
+		if (hlen + skb_headlen(iter) > mtu)
+			return false;
+	}
+
+	return true;
 }
 EXPORT_SYMBOL_GPL(skb_gso_validate_mtu);
-
-/**
- * skb_gso_validate_mac_len - Will a split GSO skb fit in a given length?
- *
- * @skb: GSO skb
- * @len: length to validate against
- *
- * skb_gso_validate_mac_len validates if a given skb will fit a wanted
- * length once split, including L2, L3 and L4 headers and the payload.
- */
-bool skb_gso_validate_mac_len(const struct sk_buff *skb, unsigned int len)
-{
-	return skb_gso_size_check(skb, skb_gso_mac_seglen(skb), len);
-}
-EXPORT_SYMBOL_GPL(skb_gso_validate_mac_len);
 
 static struct sk_buff *skb_reorder_vlan_header(struct sk_buff *skb)
 {
@@ -5230,6 +5282,7 @@ struct sk_buff *alloc_skb_with_frags(unsigned long header_len,
 	unsigned long chunk;
 	struct sk_buff *skb;
 	struct page *page;
+	gfp_t gfp_head;
 	int i;
 
 	*errcode = -EMSGSIZE;
@@ -5239,8 +5292,12 @@ struct sk_buff *alloc_skb_with_frags(unsigned long header_len,
 	if (npages > MAX_SKB_FRAGS)
 		return NULL;
 
+	gfp_head = gfp_mask;
+	if (gfp_head & __GFP_DIRECT_RECLAIM)
+		gfp_head |= __GFP_RETRY_MAYFAIL;
+
 	*errcode = -ENOBUFS;
-	skb = alloc_skb(header_len, gfp_mask);
+	skb = alloc_skb(header_len, gfp_head);
 	if (!skb)
 		return NULL;
 

@@ -87,9 +87,6 @@ static int sdcardfs_create(struct inode *dir, struct dentry *dentry,
 	lower_dentry_mnt = lower_path.mnt;
 	lower_parent_dentry = lock_parent(lower_dentry);
 
-	if (d_is_positive(lower_dentry))
-		return -EEXIST;
-
 	/* set last 16bytes of mode field to 0664 */
 	mode = (mode & S_IFMT) | 00664;
 
@@ -441,6 +438,12 @@ static int sdcardfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	/* target should not be ancestor of source */
 	if (trap == lower_new_dentry) {
 		err = -ENOTEMPTY;
+		goto out;
+	}
+
+	if (d_inode(lower_new_dir_dentry) && d_inode(lower_new_dir_dentry)->i_nlink == 0) {
+		printk("sdcardfs: sdcardfs_rename new inode i_nlink is 0\n");
+		err = -EINVAL;
 		goto out;
 	}
 

@@ -14,7 +14,6 @@
 #include <linux/sched.h>
 #include <linux/types.h>
 
-#include <asm/cacheflush.h>
 #include <asm/fixmap.h>
 #include <asm/kernel-pgtable.h>
 #include <asm/memory.h>
@@ -34,7 +33,12 @@ static __init u64 get_kaslr_seed(void *fdt)
 	node = fdt_path_offset(fdt, "/chosen");
 	if (node < 0)
 		return 0;
-
+#ifdef VENDOR_EDIT
+/* Wen.Luo@BSP.Kernel.Stability 2019/1/24, special version disable kaslr, easier to analysis problem */
+#ifdef CONFIG_KASAN
+	return 0;
+#endif
+#endif
 	prop = fdt_getprop_w(fdt, node, "kaslr-seed", &len);
 	if (!prop || len != sizeof(u64))
 		return 0;
@@ -44,7 +48,7 @@ static __init u64 get_kaslr_seed(void *fdt)
 	return ret;
 }
 
-static __init const u8 *kaslr_get_cmdline(void *fdt)
+static __init const u8 *get_cmdline(void *fdt)
 {
 	static __initconst const u8 default_cmdline[] = CONFIG_CMDLINE;
 
@@ -88,7 +92,6 @@ u64 __init kaslr_early_init(u64 dt_phys)
 	 * we end up running with module randomization disabled.
 	 */
 	module_alloc_base = (u64)_etext - MODULES_VSIZE;
-	__flush_dcache_area(&module_alloc_base, sizeof(module_alloc_base));
 
 	/*
 	 * Try to map the FDT early. If this fails, we simply bail,
@@ -111,7 +114,7 @@ u64 __init kaslr_early_init(u64 dt_phys)
 	 * Check if 'nokaslr' appears on the command line, and
 	 * return 0 if that is the case.
 	 */
-	cmdline = kaslr_get_cmdline(fdt);
+	cmdline = get_cmdline(fdt);
 	str = strstr(cmdline, "nokaslr");
 	if (str == cmdline || (str > cmdline && *(str - 1) == ' '))
 		return 0;
@@ -181,9 +184,6 @@ u64 __init kaslr_early_init(u64 dt_phys)
 	/* use the lower 21 bits to randomize the base of the module region */
 	module_alloc_base += (module_range * (seed & ((1 << 21) - 1))) >> 21;
 	module_alloc_base &= PAGE_MASK;
-
-	__flush_dcache_area(&module_alloc_base, sizeof(module_alloc_base));
-	__flush_dcache_area(&memstart_offset_seed, sizeof(memstart_offset_seed));
 
 	return offset;
 }

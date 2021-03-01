@@ -98,7 +98,6 @@ static unsigned long zram_dedup_put(struct zram *zram,
 	hash = &zram->hash[checksum % zram->hash_size];
 
 	spin_lock(&hash->lock);
-
 	val = --entry->refcount;
 	if (!entry->refcount)
 		rb_erase(&entry->rb_node, &hash->rb_root);

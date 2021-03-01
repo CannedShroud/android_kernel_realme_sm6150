@@ -745,7 +745,7 @@ static int smb1390_parse_dt(struct smb1390 *chip)
 			rc = PTR_ERR(chip->iio.die_temp_chan);
 			if (rc != -EPROBE_DEFER)
 				dev_err(chip->dev,
-					"cp_die_temp channel unavailable %d\n",
+					"cp_die_temp channel unavailable %ld\n",
 					rc);
 			chip->iio.die_temp_chan = NULL;
 			return rc;
@@ -923,7 +923,7 @@ static int smb1390_probe(struct platform_device *pdev)
 		goto out_work;
 	}
 
-	chip->cp_ws = wakeup_source_register(chip->dev, "qcom-chargepump");
+	chip->cp_ws = wakeup_source_register("qcom-chargepump");
 	if (!chip->cp_ws)
 		return rc;
 

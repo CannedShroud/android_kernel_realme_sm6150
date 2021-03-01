@@ -1,7 +1,7 @@
 /*
  * QTI Crypto driver
  *
- * Copyright (c) 2010-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2010-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1354,6 +1354,10 @@ static void _qcrypto_remove_engine(struct crypto_engine *pengine)
 	cancel_work_sync(&pengine->bw_allocate_ws);
 	del_timer_sync(&pengine->bw_reaper_timer);
 
+	if (pengine->bus_scale_handle != 0)
+		msm_bus_scale_unregister_client(pengine->bus_scale_handle);
+	pengine->bus_scale_handle = 0;
+
 	kzfree(pengine->preq_pool);
 
 	if (cp->total_units)
@@ -1384,19 +1388,8 @@ static int _qcrypto_remove(struct platform_device *pdev)
 	mutex_lock(&cp->engine_lock);
 	_qcrypto_remove_engine(pengine);
 	mutex_unlock(&cp->engine_lock);
-
-	if (msm_bus_scale_client_update_request(pengine->bus_scale_handle, 1))
-		pr_err("%s Unable to set high bandwidth\n", __func__);
-
 	if (pengine->qce)
 		qce_close(pengine->qce);
-
-	if (msm_bus_scale_client_update_request(pengine->bus_scale_handle, 0))
-		pr_err("%s Unable to set low bandwidth\n", __func__);
-
-	msm_bus_scale_unregister_client(pengine->bus_scale_handle);
-	pengine->bus_scale_handle = 0;
-
 	kzfree(pengine);
 	return 0;
 }
@@ -5319,8 +5312,7 @@ exit_qce_close:
 	if (pengine->qce)
 		qce_close(pengine->qce);
 exit_free_pdata:
-	if (msm_bus_scale_client_update_request(pengine->bus_scale_handle, 0))
-		pr_err("%s Unable to set low bandwidth\n", __func__);
+	msm_bus_scale_client_update_request(pengine->bus_scale_handle, 0);
 	platform_set_drvdata(pdev, NULL);
 exit_kzfree:
 	kzfree(pengine);
@@ -5529,7 +5521,7 @@ static int _qcrypto_debug_init(void)
 
 	_debug_dent = debugfs_create_dir("qcrypto", NULL);
 	if (IS_ERR(_debug_dent)) {
-		pr_debug("qcrypto debugfs_create_dir fail, error %ld\n",
+		pr_err("qcrypto debugfs_create_dir fail, error %ld\n",
 				PTR_ERR(_debug_dent));
 		return PTR_ERR(_debug_dent);
 	}
@@ -5539,7 +5531,7 @@ static int _qcrypto_debug_init(void)
 	dent = debugfs_create_file(name, 0644, _debug_dent,
 				&_debug_qcrypto, &_debug_stats_ops);
 	if (dent == NULL) {
-		pr_debug("qcrypto debugfs_create_file fail, error %ld\n",
+		pr_err("qcrypto debugfs_create_file fail, error %ld\n",
 				PTR_ERR(dent));
 		rc = PTR_ERR(dent);
 		goto err;
@@ -5552,9 +5544,12 @@ err:
 
 static int __init _qcrypto_init(void)
 {
+	int rc;
 	struct crypto_priv *pcp = &qcrypto_dev;
 
-	_qcrypto_debug_init();
+	rc = _qcrypto_debug_init();
+	if (rc)
+		return rc;
 	INIT_LIST_HEAD(&pcp->alg_list);
 	INIT_LIST_HEAD(&pcp->engine_list);
 	init_llist_head(&pcp->ordered_resp_list);

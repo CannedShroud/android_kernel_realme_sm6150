@@ -711,11 +711,10 @@ cleanup:
 	return ret;
 }
 
-static int rndis_set_rss_param_msg(struct rndis_device *rdev,
-				   const u8 *rss_key, u16 flag)
+int rndis_filter_set_rss_param(struct rndis_device *rdev,
+			       const u8 *rss_key)
 {
 	struct net_device *ndev = rdev->ndev;
-	struct net_device_context *ndc = netdev_priv(ndev);
 	struct rndis_request *request;
 	struct rndis_set_request *set;
 	struct rndis_set_complete *set_complete;
@@ -742,7 +741,7 @@ static int rndis_set_rss_param_msg(struct rndis_device *rdev,
 	rssp->hdr.type = NDIS_OBJECT_TYPE_RSS_PARAMETERS;
 	rssp->hdr.rev = NDIS_RECEIVE_SCALE_PARAMETERS_REVISION_2;
 	rssp->hdr.size = sizeof(struct ndis_recv_scale_param);
-	rssp->flag = flag;
+	rssp->flag = 0;
 	rssp->hashinfo = NDIS_HASH_FUNC_TOEPLITZ | NDIS_HASH_IPV4 |
 			 NDIS_HASH_TCP_IPV4 | NDIS_HASH_IPV6 |
 			 NDIS_HASH_TCP_IPV6;
@@ -755,7 +754,7 @@ static int rndis_set_rss_param_msg(struct rndis_device *rdev,
 	/* Set indirection table entries */
 	itab = (u32 *)(rssp + 1);
 	for (i = 0; i < ITAB_NUM; i++)
-		itab[i] = ndc->rx_table[i];
+		itab[i] = rdev->rx_table[i];
 
 	/* Set hask key values */
 	keyp = (u8 *)((unsigned long)rssp + rssp->kashkey_offset);
@@ -767,12 +766,9 @@ static int rndis_set_rss_param_msg(struct rndis_device *rdev,
 
 	wait_for_completion(&request->wait_event);
 	set_complete = &request->response_msg.msg.set_complete;
-	if (set_complete->status == RNDIS_STATUS_SUCCESS) {
-		if (!(flag & NDIS_RSS_PARAM_FLAG_DISABLE_RSS) &&
-		    !(flag & NDIS_RSS_PARAM_FLAG_HASH_KEY_UNCHANGED))
-			memcpy(rdev->rss_key, rss_key, NETVSC_HASH_KEYLEN);
-
-	} else {
+	if (set_complete->status == RNDIS_STATUS_SUCCESS)
+		memcpy(rdev->rss_key, rss_key, NETVSC_HASH_KEYLEN);
+	else {
 		netdev_err(ndev, "Fail to set RSS parameters:0x%x\n",
 			   set_complete->status);
 		ret = -EINVAL;
@@ -781,16 +777,6 @@ static int rndis_set_rss_param_msg(struct rndis_device *rdev,
 cleanup:
 	put_rndis_request(rdev, request);
 	return ret;
-}
-
-int rndis_filter_set_rss_param(struct rndis_device *rdev,
-			       const u8 *rss_key)
-{
-	/* Disable RSS before change */
-	rndis_set_rss_param_msg(rdev, rss_key,
-				NDIS_RSS_PARAM_FLAG_DISABLE_RSS);
-
-	return rndis_set_rss_param_msg(rdev, rss_key, 0);
 }
 
 static int rndis_filter_query_device_link_status(struct rndis_device *dev,
@@ -1205,7 +1191,6 @@ struct netvsc_device *rndis_filter_device_add(struct hv_device *dev,
 				      struct netvsc_device_info *device_info)
 {
 	struct net_device *net = hv_get_drvdata(dev);
-	struct net_device_context *ndc = netdev_priv(net);
 	struct netvsc_device *net_device;
 	struct rndis_device *rndis_device;
 	struct ndis_recv_scale_cap rsscap;
@@ -1288,11 +1273,9 @@ struct netvsc_device *rndis_filter_device_add(struct hv_device *dev,
 	/* We will use the given number of channels if available. */
 	net_device->num_chn = min(net_device->max_chn, device_info->num_chn);
 
-	if (!netif_is_rxfh_configured(net)) {
-		for (i = 0; i < ITAB_NUM; i++)
-			ndc->rx_table[i] = ethtool_rxfh_indir_default(
+	for (i = 0; i < ITAB_NUM; i++)
+		rndis_device->rx_table[i] = ethtool_rxfh_indir_default(
 						i, net_device->num_chn);
-	}
 
 	atomic_set(&net_device->open_chn, 1);
 	vmbus_set_sc_create_callback(dev->channel, netvsc_sc_open);
@@ -1330,6 +1313,8 @@ void rndis_filter_device_remove(struct hv_device *dev,
 
 	/* Halt and release the rndis device */
 	rndis_filter_halt_device(rndis_dev);
+
+	net_dev->extension = NULL;
 
 	netvsc_device_remove(dev);
 }

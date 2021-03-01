@@ -18,14 +18,12 @@
 #include <linux/rcupdate_wait.h>
 
 #include <linux/blkdev.h>
-#include <linux/kcov.h>
 #include <linux/kprobes.h>
 #include <linux/mmu_context.h>
 #include <linux/module.h>
 #include <linux/nmi.h>
 #include <linux/prefetch.h>
 #include <linux/profile.h>
-#include <linux/scs.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
 #include <linux/irq.h>
@@ -34,7 +32,6 @@
 #include <linux/kthread.h>
 
 #include <asm/switch_to.h>
-#include <linux/msm_rtb.h>
 #include <asm/tlb.h>
 #ifdef CONFIG_PARAVIRT
 #include <asm/paravirt.h>
@@ -47,6 +44,11 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
+
+#ifdef VENDOR_EDIT
+// Liujie.Xie@TECH.Kernel.Sched, 2019/05/22, add for ui first
+#include <linux/oppocfs/oppo_cfs_common.h>
+#endif
 
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
@@ -440,11 +442,10 @@ void wake_q_add(struct wake_q_head *head, struct task_struct *task)
 	 * its already queued (either by us or someone else) and will get the
 	 * wakeup due to that.
 	 *
-	 * In order to ensure that a pending wakeup will observe our pending
-	 * state, even in the failed case, an explicit smp_mb() must be used.
+	 * This cmpxchg() implies a full barrier, which pairs with the write
+	 * barrier implied by the wakeup in wake_up_q().
 	 */
-	smp_mb__before_atomic();
-	if (cmpxchg_relaxed(&node->next, NULL, WAKE_Q_TAIL))
+	if (cmpxchg(&node->next, NULL, WAKE_Q_TAIL))
 		return;
 
 	head->count++;
@@ -771,10 +772,8 @@ static inline void enqueue_task(struct rq *rq, struct task_struct *p, int flags)
 	if (!(flags & ENQUEUE_NOCLOCK))
 		update_rq_clock(rq);
 
-	if (!(flags & ENQUEUE_RESTORE)) {
+	if (!(flags & ENQUEUE_RESTORE))
 		sched_info_queued(rq, p);
-		psi_enqueue(p, flags & ENQUEUE_WAKEUP);
-	}
 
 	p->sched_class->enqueue_task(rq, p, flags);
 	walt_update_last_enqueue(p);
@@ -786,10 +785,8 @@ static inline void dequeue_task(struct rq *rq, struct task_struct *p, int flags)
 	if (!(flags & DEQUEUE_NOCLOCK))
 		update_rq_clock(rq);
 
-	if (!(flags & DEQUEUE_SAVE)) {
+	if (!(flags & DEQUEUE_SAVE))
 		sched_info_dequeued(rq, p);
-		psi_dequeue(p, flags & DEQUEUE_SLEEP);
-	}
 
 	p->sched_class->dequeue_task(rq, p, flags);
 #ifdef CONFIG_SCHED_WALT
@@ -2170,7 +2167,6 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags,
 			     sibling_count_hint);
 	if (task_cpu(p) != cpu) {
 		wake_flags |= WF_MIGRATED;
-		psi_ttwu_dequeue(p);
 		set_task_cpu(p, cpu);
 	}
 
@@ -2296,9 +2292,6 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.nr_migrations		= 0;
 	p->se.vruntime			= 0;
 	p->last_sleep_ts		= 0;
-	p->boost                = 0;
-	p->boost_expires        = 0;
-	p->boost_period         = 0;
 
 	INIT_LIST_HEAD(&p->se.group_node);
 
@@ -2721,7 +2714,6 @@ static inline void
 prepare_task_switch(struct rq *rq, struct task_struct *prev,
 		    struct task_struct *next)
 {
-	kcov_prepare_switch(prev);
 	sched_info_switch(rq, prev, next);
 	perf_event_task_sched_out(prev, next);
 	fire_sched_out_preempt_notifiers(prev, next);
@@ -2799,7 +2791,6 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 	smp_mb__after_unlock_lock();
 	finish_lock_switch(rq, prev);
 	finish_arch_post_lock_switch();
-	kcov_finish_switch(current);
 
 	fire_sched_in_preempt_notifiers(current);
 	if (mm)
@@ -2930,7 +2921,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	 */
 	rq_unpin_lock(rq, rf);
 	spin_release(&rq->lock.dep_map, 1, _THIS_IP_);
-	uncached_logk(LOGK_CTXID, (void *)(u64)next->pid);
+
 	/* Here we just switch the register state and the stack. */
 	switch_to(prev, next, prev);
 	barrier();
@@ -3171,7 +3162,6 @@ void scheduler_tick(void)
 	curr->sched_class->task_tick(rq, curr, 0);
 	cpu_load_update_active(rq);
 	calc_global_load_tick(rq);
-	psi_task_tick(rq);
 
 	early_notif = early_detection_notify(rq, wallclock);
 	if (early_notif)
@@ -3187,6 +3177,13 @@ void scheduler_tick(void)
 	trigger_load_balance(rq);
 #endif
 	rq_last_tick_reset(rq);
+
+#ifdef VENDOR_EDIT
+// Liujie.Xie@TECH.Kernel.Sched, 2019/05/22, add for ui first
+    if (sysctl_uifirst_enabled) {
+        trigger_ux_balance(rq);
+    }
+#endif
 
 	rcu_read_lock();
 	grp = task_related_thread_group(curr);
@@ -3445,6 +3442,22 @@ again:
 	BUG();
 }
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_PROCESS_RECLAIM) && defined(CONFIG_OPPO_SPECIAL_BUILD)
+/* Kui.Zhang@PSW.BSP.Kernel.Performance, 2019-02-26,
+ * collect reclaimed_shrinked task schedule record
+ */
+static inline void collect_reclaimed_task(struct task_struct *prev,
+		struct task_struct *next)
+{
+	if (next->flags & PF_RECLAIM_SHRINK)
+		next->reclaim_ns = sched_clock();
+
+	if (prev->flags & PF_RECLAIM_SHRINK)
+		prev->reclaim_run_ns += sched_clock() - prev->reclaim_ns;
+}
+#endif
+
+
 /*
  * __schedule() is the main scheduler function.
  *
@@ -3546,6 +3559,11 @@ static void __sched notrace __schedule(bool preempt)
 		switch_count = &prev->nvcsw;
 	}
 
+#ifdef VENDOR_EDIT
+// Liujie.Xie@TECH.Kernel.Sched, 2019/05/22, add for ui first
+    prev->enqueue_time = rq->clock;
+#endif
+
 	next = pick_next_task(rq, prev, &rf);
 	clear_tsk_need_resched(prev);
 	clear_preempt_need_resched();
@@ -3578,6 +3596,12 @@ static void __sched notrace __schedule(bool preempt)
 
 		trace_sched_switch(preempt, prev, next);
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_PROCESS_RECLAIM) && defined(CONFIG_OPPO_SPECIAL_BUILD)
+		/* Kui.Zhang@PSW.BSP.Kernel.Performance, 2019-02-26,
+		 * collect reclaimed_shrinked task schedule record
+		 */
+		collect_reclaimed_task(prev, next);
+#endif
 		/* Also unlocks the rq: */
 		rq = context_switch(rq, prev, next, &rf);
 	} else {
@@ -3930,8 +3954,7 @@ void rt_mutex_setprio(struct task_struct *p, struct task_struct *pi_task)
 	 */
 	if (dl_prio(prio)) {
 		if (!dl_prio(p->normal_prio) ||
-		    (pi_task && dl_prio(pi_task->prio) &&
-		     dl_entity_preempt(&pi_task->dl, &p->dl))) {
+		    (pi_task && dl_entity_preempt(&pi_task->dl, &p->dl))) {
 			p->dl.dl_boosted = 1;
 			queue_flag |= ENQUEUE_REPLENISH;
 		} else
@@ -4905,9 +4928,6 @@ again:
 		retval = -EINVAL;
 	}
 
-	if (!retval && !(p->flags & PF_KTHREAD))
-		cpumask_and(&p->cpus_requested, in_mask, cpu_possible_mask);
-
 out_free_new_mask:
 	free_cpumask_var(new_mask);
 out_free_cpus_allowed:
@@ -4922,10 +4942,8 @@ unsigned int sched_lib_mask_force;
 bool is_sched_lib_based_app(pid_t pid)
 {
 	const char *name = NULL;
-	char *libname, *lib_list;
 	struct vm_area_struct *vma;
 	char path_buf[LIB_PATH_LENGTH];
-	char *tmp_lib_name;
 	bool found = false;
 	struct task_struct *p;
 	struct mm_struct *mm;
@@ -4933,16 +4951,11 @@ bool is_sched_lib_based_app(pid_t pid)
 	if (strnlen(sched_lib_name, LIB_PATH_LENGTH) == 0)
 		return false;
 
-	tmp_lib_name = kmalloc(LIB_PATH_LENGTH, GFP_KERNEL);
-	if (!tmp_lib_name)
-		return false;
-
 	rcu_read_lock();
 
 	p = find_process_by_pid(pid);
 	if (!p) {
 		rcu_read_unlock();
-		kfree(tmp_lib_name);
 		return false;
 	}
 
@@ -4962,15 +4975,10 @@ bool is_sched_lib_based_app(pid_t pid)
 			if (IS_ERR(name))
 				goto release_sem;
 
-			strlcpy(tmp_lib_name, sched_lib_name, LIB_PATH_LENGTH);
-			lib_list = tmp_lib_name;
-			while ((libname = strsep(&lib_list, ","))) {
-				libname = skip_spaces(libname);
-				if (strnstr(name, libname,
+			if (strnstr(name, sched_lib_name,
 					strnlen(name, LIB_PATH_LENGTH))) {
-					found = true;
-					goto release_sem;
-				}
+				found = true;
+				break;
 			}
 		}
 	}
@@ -4980,7 +4988,6 @@ release_sem:
 	mmput(mm);
 put_task_struct:
 	put_task_struct(p);
-	kfree(tmp_lib_name);
 	return found;
 }
 
@@ -5104,7 +5111,9 @@ SYSCALL_DEFINE0(sched_yield)
 	struct rq_flags rf;
 	struct rq *rq;
 
-	rq = this_rq_lock_irq(&rf);
+	local_irq_disable();
+	rq = this_rq();
+	rq_lock(rq, &rf);
 
 	schedstat_inc(rq->yld_count);
 	current->sched_class->yield_task(rq);
@@ -5311,7 +5320,7 @@ long __sched io_schedule_timeout(long timeout)
 }
 EXPORT_SYMBOL(io_schedule_timeout);
 
-void __sched io_schedule(void)
+void io_schedule(void)
 {
 	int token;
 
@@ -5535,7 +5544,6 @@ void init_idle(struct task_struct *idle, int cpu)
 	idle->se.exec_start = sched_clock();
 	idle->flags |= PF_IDLE;
 
-	scs_task_reset(idle);
 	kasan_unpoison_task_stack(idle);
 
 #ifdef CONFIG_SMP
@@ -6189,10 +6197,15 @@ int sched_cpu_activate(unsigned int cpu)
 
 #ifdef CONFIG_SCHED_SMT
 	/*
-	 * When going up, increment the number of cores with SMT present.
+	 * The sched_smt_present static key needs to be evaluated on every
+	 * hotplug event because at boot time SMT might be disabled when
+	 * the number of booted CPUs is limited.
+	 *
+	 * If then later a sibling gets hotplugged, then the key would stay
+	 * off and SMT scheduling would never be functional.
 	 */
-	if (cpumask_weight(cpu_smt_mask(cpu)) == 2)
-		static_branch_inc_cpuslocked(&sched_smt_present);
+	if (cpumask_weight(cpu_smt_mask(cpu)) > 1)
+		static_branch_enable_cpuslocked(&sched_smt_present);
 #endif
 	set_cpu_active(cpu, true);
 
@@ -6241,14 +6254,6 @@ int sched_cpu_deactivate(unsigned int cpu)
 #endif
 	synchronize_rcu();
 
-#ifdef CONFIG_SCHED_SMT
-	/*
-	 * When going down, decrement the number of cores with SMT present.
-	 */
-	if (cpumask_weight(cpu_smt_mask(cpu)) == 2)
-		static_branch_dec_cpuslocked(&sched_smt_present);
-#endif
-
 	if (!sched_smp_initialized)
 		return 0;
 
@@ -6279,7 +6284,6 @@ int sched_cpu_starting(unsigned int cpu)
 {
 	set_cpu_rq_start_time(cpu);
 	sched_rq_cpu_starting(cpu);
-	clear_walt_request(cpu);
 	return 0;
 }
 
@@ -6323,24 +6327,20 @@ void __init sched_init_smp(void)
 	/*
 	 * There's no userspace yet to cause hotplug operations; hence all the
 	 * CPU masks are stable and all blatant races in the below code cannot
-	 * happen. The hotplug lock is nevertheless taken to satisfy lockdep,
-	 * but there won't be any contention on it.
+	 * happen.
 	 */
-	cpus_read_lock();
 	mutex_lock(&sched_domains_mutex);
 	sched_init_domains(cpu_active_mask);
 	cpumask_andnot(non_isolated_cpus, cpu_possible_mask, cpu_isolated_map);
 	if (cpumask_empty(non_isolated_cpus))
 		cpumask_set_cpu(smp_processor_id(), non_isolated_cpus);
 	mutex_unlock(&sched_domains_mutex);
-	cpus_read_unlock();
 
 	update_cluster_topology();
 
 	/* Move init over to a non-isolated CPU */
 	if (set_cpus_allowed_ptr(current, non_isolated_cpus) < 0)
 		BUG();
-	cpumask_copy(&current->cpus_requested, cpu_possible_mask);
 	sched_init_granularity();
 	free_cpumask_var(non_isolated_cpus);
 
@@ -6463,6 +6463,10 @@ void __init sched_init(void)
 		init_cfs_rq(&rq->cfs);
 		init_rt_rq(&rq->rt);
 		init_dl_rq(&rq->dl);
+#ifdef VENDOR_EDIT
+// Liujie.Xie@TECH.Kernel.Sched, 2019/05/22, add for ui first
+        ux_init_rq_data(rq);
+#endif
 #ifdef CONFIG_FAIR_GROUP_SCHED
 		root_task_group.shares = ROOT_TASK_GROUP_LOAD;
 		INIT_LIST_HEAD(&rq->leaf_cfs_rq_list);
@@ -6561,8 +6565,6 @@ void __init sched_init(void)
 	init_sched_fair_class();
 
 	init_schedstats();
-
-	psi_init();
 
 	scheduler_running = 1;
 }
@@ -6946,6 +6948,7 @@ static void sched_update_updown_migrate_values(unsigned int *data,
 						 cluster_cpus);
 }
 
+static DEFINE_MUTEX(mutex);
 int sched_updown_migrate_handler(struct ctl_table *table, int write,
 				 void __user *buffer, size_t *lenp,
 				 loff_t *ppos)
@@ -6953,7 +6956,6 @@ int sched_updown_migrate_handler(struct ctl_table *table, int write,
 	int ret, i;
 	unsigned int *data = (unsigned int *)table->data;
 	unsigned int *old_val;
-	static DEFINE_MUTEX(mutex);
 	static int cap_margin_levels = -1;
 
 	mutex_lock(&mutex);
@@ -7012,6 +7014,96 @@ unlock_mutex:
 
 	return ret;
 }
+
+#ifdef VENDOR_EDIT
+//cuixiaogang@SRC.hypnus.2018.07.11. add for change up/down migrate
+static int find_max_clusters(void)
+{
+	int cpu;
+	static int s_max_clusters = -1;
+
+	if (likely(s_max_clusters != -1))
+		goto out_find;
+
+	for (cpu = s_max_clusters = 0; cpu < num_possible_cpus();) {
+		cpu += cpumask_weight(topology_core_cpumask(cpu));
+		s_max_clusters++;
+	}
+
+ out_find:
+	return s_max_clusters;
+}
+
+int sched_get_updown_migrate(unsigned int *up_pct, unsigned int *down_pct)
+{
+	int i, max_clusters;
+
+	if (!up_pct || !down_pct) {
+		pr_err("%s: up_pct or down_pct is null\n", __func__);
+		return -EINVAL;
+	}
+
+	mutex_lock(&mutex);
+
+	max_clusters = find_max_clusters();
+	if (max_clusters <= 1) {
+		pr_err("%s: the value of max clusters is %d\n",
+			__func__, max_clusters);
+		mutex_unlock(&mutex);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < max_clusters - 1; i++) {
+		up_pct[i] = SCHED_FIXEDPOINT_SCALE * 100
+			/ sysctl_sched_capacity_margin_up[i];
+		down_pct[i] = SCHED_FIXEDPOINT_SCALE * 100
+			/ sysctl_sched_capacity_margin_down[i];
+	}
+
+	mutex_unlock(&mutex);
+
+	return 0;
+}
+EXPORT_SYMBOL(sched_get_updown_migrate);
+
+int sched_set_updown_migrate(unsigned int *up_pct, unsigned int *down_pct)
+{
+	int i, max_clusters;
+
+	if (!up_pct || !down_pct) {
+		pr_err("%s: up_pct or down_pct is null\n", __func__);
+		return -EINVAL;
+	}
+
+	mutex_lock(&mutex);
+
+	max_clusters = find_max_clusters();
+	if (max_clusters <= 1) {
+		pr_err("%s: the value of max clusters is %d\n",
+			__func__, max_clusters);
+		mutex_unlock(&mutex);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < max_clusters - 1; i++) {
+		sysctl_sched_capacity_margin_up[i]
+			= SCHED_FIXEDPOINT_SCALE * 100 / up_pct[i];
+		sysctl_sched_capacity_margin_down[i]
+			= SCHED_FIXEDPOINT_SCALE * 100 / down_pct[i];
+	}
+
+	sched_update_updown_migrate_values(sysctl_sched_capacity_margin_up,
+						max_clusters - 1);
+
+	sched_update_updown_migrate_values(sysctl_sched_capacity_margin_down,
+						max_clusters - 1);
+
+	mutex_unlock(&mutex);
+
+	return 0;
+}
+EXPORT_SYMBOL(sched_set_updown_migrate);
+#endif /* VENDOR_EDIT */
 #endif
 
 static inline struct task_group *css_tg(struct cgroup_subsys_state *css)
@@ -7092,6 +7184,10 @@ static int cpu_cgroup_can_attach(struct cgroup_taskset *tset)
 #ifdef CONFIG_RT_GROUP_SCHED
 		if (!sched_rt_can_attach(css_tg(css), task))
 			return -EINVAL;
+#else
+		/* We don't support RT-tasks being in separate groups */
+		if (task->sched_class != &fair_sched_class)
+			return -EINVAL;
 #endif
 		/*
 		 * Serialize against wake_up_new_task() such that if its
@@ -7126,8 +7222,6 @@ static void cpu_cgroup_attach(struct cgroup_taskset *tset)
 static int cpu_shares_write_u64(struct cgroup_subsys_state *css,
 				struct cftype *cftype, u64 shareval)
 {
-	if (shareval > scale_load_down(ULONG_MAX))
-		shareval = MAX_SHARES;
 	return sched_group_set_shares(css_tg(css), scale_load(shareval));
 }
 
@@ -7230,10 +7324,8 @@ int tg_set_cfs_quota(struct task_group *tg, long cfs_quota_us)
 	period = ktime_to_ns(tg->cfs_bandwidth.period);
 	if (cfs_quota_us < 0)
 		quota = RUNTIME_INF;
-	else if ((u64)cfs_quota_us <= U64_MAX / NSEC_PER_USEC)
-		quota = (u64)cfs_quota_us * NSEC_PER_USEC;
 	else
-		return -EINVAL;
+		quota = (u64)cfs_quota_us * NSEC_PER_USEC;
 
 	return tg_set_cfs_bandwidth(tg, period, quota);
 }
@@ -7254,9 +7346,6 @@ long tg_get_cfs_quota(struct task_group *tg)
 int tg_set_cfs_period(struct task_group *tg, long cfs_period_us)
 {
 	u64 quota, period;
-
-	if ((u64)cfs_period_us > U64_MAX / NSEC_PER_USEC)
-		return -EINVAL;
 
 	period = (u64)cfs_period_us * NSEC_PER_USEC;
 	quota = tg->cfs_bandwidth.quota;
@@ -7516,26 +7605,6 @@ const u32 sched_prio_to_wmult[40] = {
  /*  15 */ 119304647, 148102320, 186737708, 238609294, 286331153,
 };
 
-/*
- *@boost:should be 0,1,2.
- *@period:boost time based on ms units.
- */
-int set_task_boost(int boost, u64 period)
-{
-	if (boost < 0 || boost > 2)
-		return -EINVAL;
-	if (boost) {
-		current->boost = boost;
-		current->boost_period = (u64)period * 1000 * 1000;
-		current->boost_expires = sched_clock() + current->boost_period;
-	} else {
-		current->boost = 0;
-		current->boost_expires = 0;
-		current->boost_period = 0;
-	}
-	return 0;
-}
-
 #ifdef CONFIG_SCHED_WALT
 /*
  * sched_exit() - Set EXITING_TASK_MARKER in task's ravg.demand field
@@ -7581,3 +7650,36 @@ void sched_exit(struct task_struct *p)
 #endif /* CONFIG_SCHED_WALT */
 
 __read_mostly bool sched_predl = 1;
+
+#ifdef VENDOR_EDIT
+// Liujie.Xie@TECH.Kernel.Sched, 2019/05/22, add for ui first
+inline bool is_inherit_top_app(struct task_struct *p)
+{
+    return p && p->inherit_top_app > 0;
+}
+
+inline void set_inherit_top_app(struct task_struct *p,
+        struct task_struct *from)
+{
+    if (!p || !from)
+        return;
+    if (p->static_ux)
+        return;
+    p->inherit_top_app = 1;
+}
+
+inline void restore_inherit_top_app(struct task_struct *p)
+{
+    if (p && is_inherit_top_app(p)) {
+        p->inherit_top_app = 0;
+    }
+}
+#endif
+
+#ifdef VENDOR_EDIT
+/*fanhui@PhoneSW.BSP, 2016-06-23, get current task on one cpu*/
+struct task_struct *oppo_get_cpu_task(int cpu)
+{
+	return cpu_curr(cpu);
+}
+#endif

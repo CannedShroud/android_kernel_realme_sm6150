@@ -178,14 +178,6 @@ Charger specific properties:
   Definition: Boolean flag which when present enables input suspend for
 		debug battery.
 
-- qcom,fake-chg-status-on-debug-batt
-  Usage:      optional
-  Value type: <empty>
-  Definition: Boolean flag which when present shows charging status as
-		unknown for debug battery. This needs to be specified only if
-		the device needs to be kept powered on always with
-		"svc power stayon true".
-
 - qcom,min-freq-khz
   Usage:      optional
   Value type: <u32>
@@ -208,12 +200,6 @@ Charger specific properties:
   Usage:      optional
   Value type: bool
   Definition: Boolean flag which when present enables step-charging.
-
-- qcom,typec-legacy-rp-icl
-  Usage:       optional
-  Value type:  bool
-  Definition:  Boolean property to enable setting ICL based on Rp for
-		Type-C non-compliant legacy cables.
 
 - qcom,wd-bark-time-secs
   Usage:      optional
@@ -283,6 +269,14 @@ Charger specific properties:
   Definition: Boolean flag which when present enables hardware-controlled
 		operation of HVDCP.
 
+- qcom,wd-snarl-time-config
+  Usage:      optional
+  Value type: <u32>
+  Definition: WDOG snarl timeout configuration value. The possible values are
+		0 to 7, where 0 = 62.5ms, 1 = 125ms, 2 = 250ms, 3 = 500ms,
+		4 = 1s, 5 = 2s, 6 = 4s and 7 = 8s. If not defined, wdog-snarl
+		irq is disabled by default.
+
 - qcom,usb-pd-disable
   Usage:      optional
   Value type: bool
@@ -314,56 +308,12 @@ Charger specific properties:
   Definition: Boolean flag which when present enables h/w based skin
 		temperature mitigation.
 
-- qcom,en-skin-therm-mitigation
-  Usage:      optional
-  Value type: bool
-  Definition: Boolean flag which when present enables skin
-		thermal mitigation.
-
 - qcom,connector-internal-pull-kohm
   Usage:      optional
   Value type: <u32>
   Definition: Specifies internal pull-up configuration to be applied to
 		connector THERM, only valid values are (0/30/100/400).
 		If not specified 100K is used as default pull-up.
-
-- qcom,smb-internal-pull-kohm
-  Usage:      optional
-  Value type: <u32>
-  Definition: Specifies internal pull-up configuration to be applied to
-		smb THERM, only valid values are (0/30/100/400).
-		If not specified 100K is used as default pull-up.
-
-- qcom,wd-snarl-time-config
-  Usage:      optional
-  Value type: <u32>
-  Definition: WDOG snarl timeout configuration value. The possible values are
-		0 to 7, where 0 = 62.5ms, 1 = 125ms, 2 = 250ms, 3 = 500ms,
-		4 = 1s, 5 = 2s, 6 = 4s and 7 = 8s. If not defined, wdog-snarl
-		irq is disabled by default.
-
-- qcom,adc-based-aicl
-  Usage:      optional
-  Value type: bool
-  Definition: Boolean flag which when present enables ADC based AICL.
-
-- qcom,disable-sw-thermal-regulation
-  Usage:      optional
-  Value type: bool
-  Definition: Boolean flag which when present disables the software thermal
-		regulation.
-
-- qcom,disable-fcc-restriction
-  Usage:      optional
-  Value type: bool
-  Definition: Boolean flag which when present disables FCC restriction.
-
-- qcom,wls-current-max-ua
-  Usage:      optional
-  Value type: <u32>
-  Definition: Upper limit of charging current supplied by the wireless
-		charger. If left unspecified, the HW min value of 1.5 A is
-		applied by default.
 
 =============================================
 Second Level Nodes - SMB5 Charger Peripherals

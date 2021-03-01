@@ -487,6 +487,10 @@ void thread_group_cputime_adjusted(struct task_struct *p, u64 *ut, u64 *st)
 	*ut = cputime.utime;
 	*st = cputime.stime;
 }
+#ifdef VENDOR_EDIT
+//fangpan@Swdp.shanghai, 2015/11/26, add interface for resmon module
+EXPORT_SYMBOL(thread_group_cputime_adjusted);
+#endif
 #else /* !CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
 /*
  * Account a single tick of cpu time.
@@ -700,6 +704,10 @@ void thread_group_cputime_adjusted(struct task_struct *p, u64 *ut, u64 *st)
 	thread_group_cputime(p, &cputime);
 	cputime_adjust(&cputime, &p->signal->prev_cputime, ut, st);
 }
+#ifdef VENDOR_EDIT
+//fangpan@Swdp.shanghai, 2015/11/26, add interface for resmon module
+EXPORT_SYMBOL(thread_group_cputime_adjusted);
+#endif
 #endif /* !CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
 
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN
@@ -762,7 +770,7 @@ void vtime_account_system(struct task_struct *tsk)
 
 	write_seqcount_begin(&vtime->seqcount);
 	/* We might have scheduled out from guest path */
-	if (tsk->flags & PF_VCPU)
+	if (current->flags & PF_VCPU)
 		vtime_account_guest(tsk, vtime);
 	else
 		__vtime_account_system(tsk, vtime);
@@ -805,7 +813,7 @@ void vtime_guest_enter(struct task_struct *tsk)
 	 */
 	write_seqcount_begin(&vtime->seqcount);
 	__vtime_account_system(tsk, vtime);
-	tsk->flags |= PF_VCPU;
+	current->flags |= PF_VCPU;
 	write_seqcount_end(&vtime->seqcount);
 }
 EXPORT_SYMBOL_GPL(vtime_guest_enter);
@@ -816,7 +824,7 @@ void vtime_guest_exit(struct task_struct *tsk)
 
 	write_seqcount_begin(&vtime->seqcount);
 	vtime_account_guest(tsk, vtime);
-	tsk->flags &= ~PF_VCPU;
+	current->flags &= ~PF_VCPU;
 	write_seqcount_end(&vtime->seqcount);
 }
 EXPORT_SYMBOL_GPL(vtime_guest_exit);

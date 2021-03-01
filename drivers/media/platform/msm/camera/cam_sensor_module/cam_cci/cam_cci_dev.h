@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -68,7 +68,12 @@
 /* Max bytes that can be read per CCI read transaction */
 #define CCI_READ_MAX 256
 #define CCI_I2C_READ_MAX_RETRIES 3
+#ifndef VENDOR_EDIT
 #define CCI_I2C_MAX_READ 8192
+#else
+//add by yufeng@camera, 20190528 for read eeprom data
+#define CCI_I2C_MAX_READ 16384
+#endif
 #define CCI_I2C_MAX_WRITE 8192
 #define CCI_I2C_MAX_BYTE_COUNT 65535
 
@@ -317,6 +322,6 @@ static inline struct v4l2_subdev *cam_cci_get_subdev(int cci_dev_index)
 #endif
 
 #define VIDIOC_MSM_CCI_CFG \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 23, struct cam_cci_ctrl)
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 23, struct cam_cci_ctrl *)
 
 #endif /* _CAM_CCI_DEV_H_ */

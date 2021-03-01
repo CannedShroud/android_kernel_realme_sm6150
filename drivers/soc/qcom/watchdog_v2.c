@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -36,6 +36,11 @@
 #include <linux/cpumask.h>
 #include <uapi/linux/sched/types.h>
 
+#ifdef VENDOR_EDIT
+/*fanhui@PhoneSW.BSP, 2016-06-22, use self-defined utils*/
+#include "oppo_watchdog_util.h"
+#endif
+
 #define MODULE_NAME "msm_watchdog"
 #define WDT0_ACCSCSSNBARK_INT 0
 #define TCSR_WDT_CFG	0x30
@@ -57,7 +62,7 @@
 
 static struct msm_watchdog_data *wdog_data;
 
-static int cpu_idle_pc_state[NR_CPUS];
+int cpu_idle_pc_state[NR_CPUS];
 
 /*
  * user_pet_enable:
@@ -100,9 +105,6 @@ struct msm_watchdog_data {
 	unsigned long long ping_start[NR_CPUS];
 	unsigned long long ping_end[NR_CPUS];
 	unsigned int cpu_scandump_sizes[NR_CPUS];
-
-	/* When single buffer is used to collect Scandump */
-	unsigned int scandump_size;
 };
 
 /*
@@ -197,7 +199,7 @@ static int panic_wdog_handler(struct notifier_block *this,
 {
 	struct msm_watchdog_data *wdog_dd = container_of(this,
 				struct msm_watchdog_data, panic_blk);
-	if (panic_timeout == 0 || crash_kexec_post_notifiers) {
+	if (panic_timeout == 0) {
 		__raw_writel(0, wdog_dd->base + WDT0_EN);
 		/* Make sure watchdog is enabled before notifying the caller */
 		mb();
@@ -254,6 +256,7 @@ static ssize_t wdog_disable_set(struct device *dev,
 	int ret;
 	u8 disable;
 	struct msm_watchdog_data *wdog_dd = dev_get_drvdata(dev);
+	struct scm_desc desc = {0};
 
 	ret = kstrtou8(buf, 10, &disable);
 	if (ret) {
@@ -268,17 +271,11 @@ static ssize_t wdog_disable_set(struct device *dev,
 			return count;
 		}
 		disable = 1;
-		if (!is_scm_armv8()) {
-			ret = scm_call(SCM_SVC_BOOT, SCM_SVC_SEC_WDOG_DIS,
-				       &disable, sizeof(disable), NULL, 0);
-		} else {
-			struct scm_desc desc = {0};
 
-			desc.args[0] = 1;
-			desc.arginfo = SCM_ARGS(1);
-			ret = scm_call2(SCM_SIP_FNID(SCM_SVC_BOOT,
-					SCM_SVC_SEC_WDOG_DIS), &desc);
-		}
+		desc.args[0] = 1;
+		desc.arginfo = SCM_ARGS(1);
+		ret = scm_call2(SCM_SIP_FNID(SCM_SVC_BOOT,
+						SCM_SVC_SEC_WDOG_DIS), &desc);
 		if (ret) {
 			dev_err(wdog_dd->dev,
 					"Failed to deactivate secure wdog\n");
@@ -399,15 +396,28 @@ static void ping_other_cpus(struct msm_watchdog_data *wdog_dd)
 {
 	int cpu;
 
+#ifdef VENDOR_EDIT
+/* fanhui@PhoneSW.BSP, 2016/05/26, print more info on pet watchdog */
+	cpumask_t mask;
+	get_cpu_ping_mask(&mask);
+#endif /*VENDOR_EDIT*/
 	cpumask_clear(&wdog_dd->alive_mask);
 	/* Make sure alive mask is cleared and set in order */
 	smp_mb();
+#ifdef VENDOR_EDIT
+/* fanhui@PhoneSW.BSP, 2016/05/26, only ping cpu need ping */
+	for_each_cpu(cpu, &mask) {
+#else
 	for_each_cpu(cpu, cpu_online_mask) {
 		if (!cpu_idle_pc_state[cpu] && !cpu_isolated(cpu)) {
+#endif /*VENDOR_EDIT*/
 			wdog_dd->ping_start[cpu] = sched_clock();
 			smp_call_function_single(cpu, keep_alive_response,
 						 wdog_dd, 1);
+#ifdef VENDOR_EDIT
+#else
 		}
+#endif /*VENDOR_EDIT*/
 	}
 }
 
@@ -454,6 +464,10 @@ static __ref int watchdog_kthread(void *arg)
 			delay_time = msecs_to_jiffies(wdog_dd->pet_time);
 			pet_watchdog(wdog_dd);
 		}
+#ifdef VENDOR_EDIT
+/*fanhui@PhoneSW.BSP, 2016-06-23, reset reocery_tried*/
+		reset_recovery_tried();
+#endif
 		/* Check again before scheduling
 		 * Could have been changed on other cpu
 		 */
@@ -542,10 +556,30 @@ static irqreturn_t wdog_bark_handler(int irq, void *dev_id)
 	nanosec_rem = do_div(wdog_dd->last_pet, 1000000000);
 	dev_info(wdog_dd->dev, "Watchdog last pet at %lu.%06lu\n",
 			(unsigned long) wdog_dd->last_pet, nanosec_rem / 1000);
-	if (wdog_dd->do_ipi_ping)
+	if (wdog_dd->do_ipi_ping){
 		dump_cpu_alive_mask(wdog_dd);
+#ifdef VENDOR_EDIT
+/* fanhui@PhoneSW.BSP, 2016/04/22, print online cpu */
+		dump_cpu_online_mask();
+#endif
+	}
+#ifdef VENDOR_EDIT
+/* fanhui@PhoneSW.BSP, 2016/01/20, print more info about cpu the wdog on */
+	if (try_to_recover_pending(wdog_dd->watchdog_task)) {
+		pet_watchdog(wdog_dd);
+		return IRQ_HANDLED;
+	}
+
+	print_smp_call_cpu();
+	dump_wdog_cpu(wdog_dd->watchdog_task);
+#endif
+#ifdef VENDOR_EDIT
+/* fanhui@PhoneSW.BSP, 2016/01/20, delete trigger wdog bite, panic will trigger wdog if in dload mode*/
+	panic("Handle a watchdog bite! - Falling back to kernel panic!");
+#else
 	msm_trigger_wdog_bite();
 	panic("Failed to cause a watchdog bite! - Falling back to kernel panic!");
+#endif
 	return IRQ_HANDLED;
 }
 
@@ -598,38 +632,6 @@ out0:
 	return;
 }
 
-static void register_scan_dump(struct msm_watchdog_data *wdog_dd)
-{
-	static void *dump_addr;
-	int ret;
-	struct msm_dump_entry dump_entry;
-	struct msm_dump_data *dump_data;
-
-	dump_data = kzalloc(sizeof(struct msm_dump_data), GFP_KERNEL);
-	if (!dump_data)
-		return;
-	dump_addr = kzalloc(wdog_dd->scandump_size, GFP_KERNEL);
-	if (!dump_addr)
-		goto err0;
-
-	dump_data->addr = virt_to_phys(dump_addr);
-	dump_data->len = wdog_dd->scandump_size;
-	strlcpy(dump_data->name, "KSCANDUMP", sizeof(dump_data->name));
-
-	dump_entry.id = MSM_DUMP_DATA_SCANDUMP;
-	dump_entry.addr = virt_to_phys(dump_data);
-	ret = msm_dump_data_register(MSM_DUMP_TABLE_APPS, &dump_entry);
-	if (ret) {
-		pr_err("Registering scandump region failed\n");
-		goto err1;
-	}
-	return;
-err1:
-	kfree(dump_addr);
-err0:
-	kfree(dump_data);
-}
-
 static void configure_scandump(struct msm_watchdog_data *wdog_dd)
 {
 	int ret;
@@ -639,11 +641,6 @@ static void configure_scandump(struct msm_watchdog_data *wdog_dd)
 	static dma_addr_t dump_addr;
 	static void *dump_vaddr;
 	unsigned int scandump_size;
-
-	if (wdog_dd->scandump_size) {
-		register_scan_dump(wdog_dd);
-		return;
-	}
 
 	for_each_cpu(cpu, cpu_present_mask) {
 		scandump_size = wdog_dd->cpu_scandump_sizes[cpu];
@@ -864,22 +861,14 @@ static int msm_wdog_dt_to_pdata(struct platform_device *pdev,
 	num_scandump_sizes = of_property_count_elems_of_size(node,
 							"qcom,scandump-sizes",
 							sizeof(u32));
-	if ((num_scandump_sizes < 0) || ((num_scandump_sizes != 1) &&
-				(num_scandump_sizes != NR_CPUS))) {
+	if (num_scandump_sizes < 0 || num_scandump_sizes != NR_CPUS)
 		dev_info(&pdev->dev, "%s scandump sizes property not correct\n",
 			__func__);
-	} else if (num_scandump_sizes == 1) {
-		if (of_property_read_u32(node, "qcom,scandump-sizes",
-					 &pdata->scandump_size))
-			dev_info(&pdev->dev,
-				 "No need to allocate memory for scandumps\n");
-	} else {
+	else
 		for_each_cpu(cpu, cpu_present_mask)
 			of_property_read_u32_index(node, "qcom,scandump-sizes",
 						   cpu,
 					&pdata->cpu_scandump_sizes[cpu]);
-	}
-
 	pdata->irq_ppi = irq_is_percpu(pdata->bark_irq);
 	dump_pdata(pdata);
 	return 0;
@@ -920,6 +909,17 @@ static int msm_watchdog_probe(struct platform_device *pdev)
 	if (msm_minidump_add_region(&md_entry))
 		pr_info("Failed to add Watchdog data in Minidump\n");
 
+
+
+
+
+
+
+
+
+
+
+
 	return 0;
 err:
 	kzfree(wdog_dd);
@@ -927,7 +927,8 @@ err:
 }
 
 static const struct dev_pm_ops msm_watchdog_dev_pm_ops = {
-	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(msm_watchdog_suspend, msm_watchdog_resume)
+	.suspend_noirq = msm_watchdog_suspend,
+	.resume_noirq = msm_watchdog_resume,
 };
 
 static struct platform_driver msm_watchdog_driver = {

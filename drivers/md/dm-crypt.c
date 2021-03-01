@@ -49,7 +49,7 @@ struct convert_context {
 	struct bio *bio_out;
 	struct bvec_iter iter_in;
 	struct bvec_iter iter_out;
-	u64 cc_sector;
+	sector_t cc_sector;
 	atomic_t cc_pending;
 	union {
 		struct skcipher_request *req;
@@ -81,7 +81,7 @@ struct dm_crypt_request {
 	struct convert_context *ctx;
 	struct scatterlist sg_in[4];
 	struct scatterlist sg_out[4];
-	u64 iv_sector;
+	sector_t iv_sector;
 };
 
 struct crypt_config;
@@ -126,7 +126,7 @@ struct iv_tcw_private {
  */
 enum flags { DM_CRYPT_SUSPENDED, DM_CRYPT_KEY_VALID,
 	     DM_CRYPT_SAME_CPU, DM_CRYPT_NO_OFFLOAD,
-};
+	     DM_CRYPT_ENCRYPT_OVERRIDE };
 
 enum cipher_flags {
 	CRYPT_MODE_INTEGRITY_AEAD,	/* Use authenticated mode for cihper */
@@ -173,7 +173,7 @@ struct crypt_config {
 		struct iv_lmk_private lmk;
 		struct iv_tcw_private tcw;
 	} iv_gen_private;
-	u64 iv_offset;
+	sector_t iv_offset;
 	unsigned int iv_size;
 	unsigned short int sector_size;
 	unsigned char sector_shift;
@@ -335,7 +335,7 @@ static int crypt_iv_essiv_init(struct crypt_config *cc)
 
 	sg_init_one(&sg, cc->key, cc->key_size);
 	ahash_request_set_tfm(req, essiv->hash_tfm);
-	ahash_request_set_callback(req, 0, NULL, NULL);
+	ahash_request_set_callback(req, CRYPTO_TFM_REQ_MAY_SLEEP, NULL, NULL);
 	ahash_request_set_crypt(req, &sg, essiv->salt, cc->key_size);
 
 	err = crypto_ahash_digest(req);
@@ -486,14 +486,8 @@ static int crypt_iv_essiv_gen(struct crypt_config *cc, u8 *iv,
 static int crypt_iv_benbi_ctr(struct crypt_config *cc, struct dm_target *ti,
 			      const char *opts)
 {
-	unsigned bs;
-	int log;
-
-	if (test_bit(CRYPT_MODE_INTEGRITY_AEAD, &cc->cipher_flags))
-		bs = crypto_aead_blocksize(any_tfm_aead(cc));
-	else
-		bs = crypto_skcipher_blocksize(any_tfm(cc));
-	log = ilog2(bs);
+	unsigned bs = crypto_skcipher_blocksize(any_tfm(cc));
+	int log = ilog2(bs);
 
 	/* we need to calculate how far we must shift the sector count
 	 * to get the cipher block count, we use this shift in _gen */
@@ -616,7 +610,7 @@ static int crypt_iv_lmk_one(struct crypt_config *cc, u8 *iv,
 	int i, r;
 
 	desc->tfm = lmk->hash_tfm;
-	desc->flags = 0;
+	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
 
 	r = crypto_shash_init(desc);
 	if (r)
@@ -778,7 +772,7 @@ static int crypt_iv_tcw_whitening(struct crypt_config *cc,
 
 	/* calculate crc32 for every 32bit part and xor it */
 	desc->tfm = tcw->crc32_tfm;
-	desc->flags = 0;
+	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
 	for (i = 0; i < 4; i++) {
 		r = crypto_shash_init(desc);
 		if (r)
@@ -942,7 +936,7 @@ static int dm_crypt_integrity_io_alloc(struct dm_crypt_io *io, struct bio *bio)
 	if (IS_ERR(bip))
 		return PTR_ERR(bip);
 
-	tag_len = io->cc->on_disk_tag_size * (bio_sectors(bio) >> io->cc->sector_shift);
+	tag_len = io->cc->on_disk_tag_size * bio_sectors(bio);
 
 	bip->bip_iter.bi_size = tag_len;
 	bip->bip_iter.bi_sector = io->cc->start + io->sector;
@@ -1261,7 +1255,7 @@ static void crypt_alloc_req_skcipher(struct crypt_config *cc,
 	 * requests if driver request queue is full.
 	 */
 	skcipher_request_set_callback(ctx->r.req,
-	    CRYPTO_TFM_REQ_MAY_BACKLOG,
+	    CRYPTO_TFM_REQ_MAY_BACKLOG | CRYPTO_TFM_REQ_MAY_SLEEP,
 	    kcryptd_async_done, dmreq_of_req(cc, ctx->r.req));
 }
 
@@ -1278,7 +1272,7 @@ static void crypt_alloc_req_aead(struct crypt_config *cc,
 	 * requests if driver request queue is full.
 	 */
 	aead_request_set_callback(ctx->r.req_aead,
-	    CRYPTO_TFM_REQ_MAY_BACKLOG,
+	    CRYPTO_TFM_REQ_MAY_BACKLOG | CRYPTO_TFM_REQ_MAY_SLEEP,
 	    kcryptd_async_done, dmreq_of_req(cc, ctx->r.req_aead));
 }
 
@@ -1900,13 +1894,6 @@ static int crypt_alloc_tfms_skcipher(struct crypt_config *cc, char *ciphermode)
 		}
 	}
 
-	/*
-	 * dm-crypt performance can vary greatly depending on which crypto
-	 * algorithm implementation is used.  Help people debug performance
-	 * problems by logging the ->cra_driver_name.
-	 */
-	DMINFO("%s using implementation \"%s\"", ciphermode,
-	       crypto_skcipher_alg(any_tfm(cc))->base.cra_driver_name);
 	return 0;
 }
 
@@ -1925,8 +1912,6 @@ static int crypt_alloc_tfms_aead(struct crypt_config *cc, char *ciphermode)
 		return err;
 	}
 
-	DMINFO("%s using implementation \"%s\"", ciphermode,
-	       crypto_aead_alg(any_tfm_aead(cc))->base.cra_driver_name);
 	return 0;
 }
 
@@ -2429,21 +2414,9 @@ static int crypt_ctr_cipher_new(struct dm_target *ti, char *cipher_in, char *key
 	 * capi:cipher_api_spec-iv:ivopts
 	 */
 	tmp = &cipher_in[strlen("capi:")];
-
-	/* Separate IV options if present, it can contain another '-' in hash name */
-	*ivopts = strrchr(tmp, ':');
-	if (*ivopts) {
-		**ivopts = '\0';
-		(*ivopts)++;
-	}
-	/* Parse IV mode */
-	*ivmode = strrchr(tmp, '-');
-	if (*ivmode) {
-		**ivmode = '\0';
-		(*ivmode)++;
-	}
-	/* The rest is crypto API spec */
-	cipher_api = tmp;
+	cipher_api = strsep(&tmp, "-");
+	*ivmode = strsep(&tmp, ":");
+	*ivopts = tmp;
 
 	if (*ivmode && !strcmp(*ivmode, "lmk"))
 		cc->tfms_count = 64;
@@ -2513,8 +2486,11 @@ static int crypt_ctr_cipher_old(struct dm_target *ti, char *cipher_in, char *key
 		goto bad_mem;
 
 	chainmode = strsep(&tmp, "-");
-	*ivmode = strsep(&tmp, ":");
-	*ivopts = tmp;
+	*ivopts = strsep(&tmp, "-");
+	*ivmode = strsep(&*ivopts, ":");
+
+	if (tmp)
+		DMWARN("Ignoring unexpected additional cipher options");
 
 	/*
 	 * For compatibility with the original dm-crypt mapping format, if
@@ -2678,6 +2654,8 @@ static int crypt_ctr_optional(struct dm_target *ti, unsigned int argc, char **ar
 			cc->sector_shift = __ffs(cc->sector_size) - SECTOR_SHIFT;
 		} else if (!strcasecmp(opt_string, "iv_large_sectors"))
 			set_bit(CRYPT_IV_LARGE_SECTORS, &cc->cipher_flags);
+		else if (!strcasecmp(opt_string, "allow_encrypt_override"))
+			set_bit(DM_CRYPT_ENCRYPT_OVERRIDE, &cc->flags);
 		else {
 			ti->error = "Invalid feature arguments";
 			return -EINVAL;
@@ -2887,13 +2865,15 @@ static int crypt_map(struct dm_target *ti, struct bio *bio)
 	struct crypt_config *cc = ti->private;
 
 	/*
-	 * If bio is REQ_PREFLUSH or REQ_OP_DISCARD, just bypass crypt queues.
+	 * If bio is REQ_PREFLUSH, REQ_NOENCRYPT, or REQ_OP_DISCARD,
+	 * just bypass crypt queues.
 	 * - for REQ_PREFLUSH device-mapper core ensures that no IO is in-flight
 	 * - for REQ_OP_DISCARD caller must use flush if IO ordering matters
 	 */
-	if (unlikely(bio->bi_opf & REQ_PREFLUSH ||
-	    bio_op(bio) == REQ_OP_DISCARD ||
-	    bio_should_skip_dm_default_key(bio))) {
+	if (unlikely(bio->bi_opf & REQ_PREFLUSH) ||
+	    (unlikely(bio->bi_opf & REQ_NOENCRYPT) &&
+	     test_bit(DM_CRYPT_ENCRYPT_OVERRIDE, &cc->flags)) ||
+	    bio_op(bio) == REQ_OP_DISCARD) {
 		bio_set_dev(bio, cc->dev->bdev);
 		if (bio_sectors(bio))
 			bio->bi_iter.bi_sector = cc->start +
@@ -2980,6 +2960,8 @@ static void crypt_status(struct dm_target *ti, status_type_t type,
 		num_feature_args += test_bit(DM_CRYPT_NO_OFFLOAD, &cc->flags);
 		num_feature_args += cc->sector_size != (1 << SECTOR_SHIFT);
 		num_feature_args += test_bit(CRYPT_IV_LARGE_SECTORS, &cc->cipher_flags);
+		num_feature_args += test_bit(DM_CRYPT_ENCRYPT_OVERRIDE,
+							&cc->flags);
 		if (cc->on_disk_tag_size)
 			num_feature_args++;
 		if (num_feature_args) {
@@ -2996,6 +2978,8 @@ static void crypt_status(struct dm_target *ti, status_type_t type,
 				DMEMIT(" sector_size:%d", cc->sector_size);
 			if (test_bit(CRYPT_IV_LARGE_SECTORS, &cc->cipher_flags))
 				DMEMIT(" iv_large_sectors");
+			if (test_bit(DM_CRYPT_ENCRYPT_OVERRIDE, &cc->flags))
+				DMEMIT(" allow_encrypt_override");
 		}
 
 		break;
@@ -3099,7 +3083,7 @@ static void crypt_io_hints(struct dm_target *ti, struct queue_limits *limits)
 	limits->max_segment_size = PAGE_SIZE;
 
 	limits->logical_block_size =
-		max_t(unsigned, limits->logical_block_size, cc->sector_size);
+		max_t(unsigned short, limits->logical_block_size, cc->sector_size);
 	limits->physical_block_size =
 		max_t(unsigned, limits->physical_block_size, cc->sector_size);
 	limits->io_min = max_t(unsigned, limits->io_min, cc->sector_size);

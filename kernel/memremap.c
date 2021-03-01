@@ -19,7 +19,6 @@
 #include <linux/memory_hotplug.h>
 #include <linux/swap.h>
 #include <linux/swapops.h>
-#include <linux/kasan.h>
 
 #ifndef ioremap_cache
 /* temporary while we convert existing ioremap_cache users to memremap */
@@ -310,7 +309,6 @@ static void devm_memremap_pages_release(struct device *dev, void *data)
 
 	mem_hotplug_begin();
 	arch_remove_memory(align_start, align_size);
-	kasan_remove_zero_shadow(__va(align_start), align_size);
 	mem_hotplug_done();
 
 	untrack_pfn(NULL, PHYS_PFN(align_start), align_size);
@@ -381,11 +379,14 @@ void *devm_memremap_pages(struct device *dev, struct resource *res,
 	is_ram = region_intersects(align_start, align_size,
 		IORESOURCE_SYSTEM_RAM, IORES_DESC_NONE);
 
-	if (is_ram != REGION_DISJOINT) {
-		WARN_ONCE(1, "%s attempted on %s region %pr\n", __func__,
-				is_ram == REGION_MIXED ? "mixed" : "ram", res);
+	if (is_ram == REGION_MIXED) {
+		WARN_ONCE(1, "%s attempted on mixed region %pr\n",
+				__func__, res);
 		return ERR_PTR(-ENXIO);
 	}
+
+	if (is_ram == REGION_INTERSECTS)
+		return __va(res->start);
 
 	if (!ref)
 		return ERR_PTR(-EINVAL);
@@ -446,11 +447,6 @@ void *devm_memremap_pages(struct device *dev, struct resource *res,
 		goto err_pfn_remap;
 
 	mem_hotplug_begin();
-	error = kasan_add_zero_shadow(__va(align_start), align_size);
-	if (error) {
-		mem_hotplug_done();
-		goto err_kasan;
-	}
 	error = arch_add_memory(nid, align_start, align_size, false);
 	if (!error)
 		move_pfn_range_to_zone(&NODE_DATA(nid)->node_zones[ZONE_DEVICE],
@@ -479,8 +475,6 @@ void *devm_memremap_pages(struct device *dev, struct resource *res,
 	return __va(res->start);
 
  err_add_memory:
-	kasan_remove_zero_shadow(__va(align_start), align_size);
- err_kasan:
 	untrack_pfn(NULL, PHYS_PFN(align_start), align_size);
  err_pfn_remap:
  err_radix:
@@ -488,7 +482,7 @@ void *devm_memremap_pages(struct device *dev, struct resource *res,
 	devres_free(page_map);
 	return ERR_PTR(error);
 }
-EXPORT_SYMBOL_GPL(devm_memremap_pages);
+EXPORT_SYMBOL(devm_memremap_pages);
 
 unsigned long vmem_altmap_offset(struct vmem_altmap *altmap)
 {

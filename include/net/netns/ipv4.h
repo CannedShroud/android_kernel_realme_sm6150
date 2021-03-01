@@ -9,7 +9,6 @@
 #include <linux/uidgid.h>
 #include <net/inet_frag.h>
 #include <linux/rcupdate.h>
-#include <linux/siphash.h>
 
 struct tcpm_hash_bucket;
 struct ctl_table_header;
@@ -107,7 +106,6 @@ struct netns_ipv4 {
 #endif
 	int sysctl_tcp_mtu_probing;
 	int sysctl_tcp_base_mss;
-	int sysctl_tcp_min_snd_mss;
 	int sysctl_tcp_probe_threshold;
 	u32 sysctl_tcp_probe_interval;
 
@@ -128,9 +126,14 @@ struct netns_ipv4 {
 	int sysctl_tcp_sack;
 	int sysctl_tcp_window_scaling;
 	int sysctl_tcp_timestamps;
-	int sysctl_tcp_default_init_rwnd;
 	struct inet_timewait_death_row tcp_death_row;
 	int sysctl_max_syn_backlog;
+
+	#ifdef VENDOR_EDIT
+	//Hao.Peng@PSW.CN.WiFi.Network.login.1854960, 2019/03/30,
+	//add for [BUGID],disable tcp random timestamp,some networks limit tcp syn before login
+	int sysctl_tcp_random_timestamp;
+	#endif /* VENDOR_EDIT */
 
 #ifdef CONFIG_NET_L3_MASTER_DEV
 	int sysctl_udp_l3mdev_accept;
@@ -167,6 +170,5 @@ struct netns_ipv4 {
 	unsigned int	fib_seq;	/* protected by rtnl_mutex */
 
 	atomic_t	rt_genid;
-	siphash_key_t	ip_id_key;
 };
 #endif

@@ -362,11 +362,32 @@ static ssize_t print_cpus_isolated(struct device *dev,
 {
 	int n = 0, len = PAGE_SIZE-2;
 
+#ifdef VENDOR_EDIT
+	/* Hui.Fan@SWDP.BSP.OPPOFeature.Hypnus, 2017-03-13, fix print error */
+	n = scnprintf(buf, len, "%*pbl\n", cpumask_pr_args(cpu_isolated_mask));
+#else
 	n = scnprintf(buf, len, "%*pbl\n", cpumask_pr_args(cpu_isolated_map));
+#endif /* VENDOR_EDIT */
 
 	return n;
 }
 static DEVICE_ATTR(isolated, 0444, print_cpus_isolated, NULL);
+
+#ifdef VENDOR_EDIT
+/* Hui.Fan@SWDP.BSP.OPPOFeature.Hypnus, 2017-03-11, print available cpus */
+static ssize_t print_cpus_available(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	int n = 0, len = PAGE_SIZE-2;
+	struct cpumask avail_mask;
+
+	cpumask_andnot(&avail_mask, cpu_online_mask, cpu_isolated_mask);
+	n = scnprintf(buf, len, "%*pbl\n", cpumask_pr_args(&avail_mask));
+
+	return n;
+}
+static DEVICE_ATTR(avail, 0444, print_cpus_available, NULL);
+#endif /* VENDOR_EDIT */
 
 #ifdef CONFIG_NO_HZ_FULL
 static ssize_t print_cpus_nohz_full(struct device *dev,
@@ -504,7 +525,6 @@ __cpu_device_create(struct device *parent, void *drvdata,
 	dev->parent = parent;
 	dev->groups = groups;
 	dev->release = device_create_release;
-	device_set_pm_not_required(dev);
 	dev_set_drvdata(dev, drvdata);
 
 	retval = kobject_set_name_vargs(&dev->kobj, fmt, args);
@@ -552,6 +572,10 @@ static struct attribute *cpu_root_attrs[] = {
 	&dev_attr_kernel_max.attr,
 	&dev_attr_offline.attr,
 	&dev_attr_isolated.attr,
+#ifdef VENDOR_EDIT
+/* Hui.Fan@SWDP.BSP.OPPOFeature.Hypnus, 2017-03-11, print available cpus */
+	&dev_attr_avail.attr,
+#endif
 #ifdef CONFIG_NO_HZ_FULL
 	&dev_attr_nohz_full.attr,
 #endif
@@ -625,40 +649,11 @@ ssize_t __weak cpu_show_l1tf(struct device *dev,
 	return sprintf(buf, "Not affected\n");
 }
 
-ssize_t __weak cpu_show_mds(struct device *dev,
-			    struct device_attribute *attr, char *buf)
-{
-	return sprintf(buf, "Not affected\n");
-}
-
-ssize_t __weak cpu_show_tsx_async_abort(struct device *dev,
-					struct device_attribute *attr,
-					char *buf)
-{
-	return sprintf(buf, "Not affected\n");
-}
-
-ssize_t __weak cpu_show_itlb_multihit(struct device *dev,
-			    struct device_attribute *attr, char *buf)
-{
-	return sprintf(buf, "Not affected\n");
-}
-
-ssize_t __weak cpu_show_srbds(struct device *dev,
-			      struct device_attribute *attr, char *buf)
-{
-	return sprintf(buf, "Not affected\n");
-}
-
 static DEVICE_ATTR(meltdown, 0444, cpu_show_meltdown, NULL);
 static DEVICE_ATTR(spectre_v1, 0444, cpu_show_spectre_v1, NULL);
 static DEVICE_ATTR(spectre_v2, 0444, cpu_show_spectre_v2, NULL);
 static DEVICE_ATTR(spec_store_bypass, 0444, cpu_show_spec_store_bypass, NULL);
 static DEVICE_ATTR(l1tf, 0444, cpu_show_l1tf, NULL);
-static DEVICE_ATTR(mds, 0444, cpu_show_mds, NULL);
-static DEVICE_ATTR(tsx_async_abort, 0444, cpu_show_tsx_async_abort, NULL);
-static DEVICE_ATTR(itlb_multihit, 0444, cpu_show_itlb_multihit, NULL);
-static DEVICE_ATTR(srbds, 0444, cpu_show_srbds, NULL);
 
 static struct attribute *cpu_root_vulnerabilities_attrs[] = {
 	&dev_attr_meltdown.attr,
@@ -666,10 +661,6 @@ static struct attribute *cpu_root_vulnerabilities_attrs[] = {
 	&dev_attr_spectre_v2.attr,
 	&dev_attr_spec_store_bypass.attr,
 	&dev_attr_l1tf.attr,
-	&dev_attr_mds.attr,
-	&dev_attr_tsx_async_abort.attr,
-	&dev_attr_itlb_multihit.attr,
-	&dev_attr_srbds.attr,
 	NULL
 };
 

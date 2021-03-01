@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -29,6 +29,12 @@
 #include "dsi_pwr.h"
 #include "dsi_parser.h"
 #include "msm_drv.h"
+#ifdef VENDOR_EDIT
+/* Gou shengjun@PSW.MM.Display.LCD.Stability,2018/11/21
+ * Add for save display panel power status at oppo display management
+*/
+#include <linux/dsi_oppo_support.h>
+#endif /*VENDOR_EDIT*/
 
 #define MAX_BL_LEVEL 4096
 #define MAX_BL_SCALE_LEVEL 1024
@@ -71,12 +77,6 @@ enum dsi_dms_mode {
 	DSI_DMS_MODE_RES_SWITCH_IMMEDIATE,
 };
 
-enum dsi_panel_physical_type {
-	DSI_DISPLAY_PANEL_TYPE_LCD = 0,
-	DSI_DISPLAY_PANEL_TYPE_OLED,
-	DSI_DISPLAY_PANEL_TYPE_MAX,
-};
-
 struct dsi_dfps_capabilities {
 	enum dsi_dfps_type type;
 	u32 min_refresh_rate;
@@ -90,9 +90,6 @@ struct dsi_dyn_clk_caps {
 	bool dyn_clk_support;
 	u32 *bit_clk_list;
 	u32 bit_clk_list_len;
-	bool skip_phy_timing_update;
-	enum dsi_dyn_clk_feature_type type;
-	bool maintain_const_fps;
 };
 
 struct dsi_pinctrl_info {
@@ -114,17 +111,16 @@ struct dsi_backlight_config {
 	u32 bl_min_level;
 	u32 bl_max_level;
 	u32 brightness_max_level;
-	u32 brightness_default_level;
 	u32 bl_level;
 	u32 bl_scale;
 	u32 bl_scale_ad;
-	bool bl_inverted_dbv;
 
 	int en_gpio;
 	/* PWM params */
-	struct pwm_device *pwm_bl;
-	bool pwm_enabled;
+	bool pwm_pmi_control;
+	u32 pwm_pmic_bank;
 	u32 pwm_period_usecs;
+	int pwm_gpio;
 
 	/* WLED params */
 	struct led_trigger *wled;
@@ -183,7 +179,6 @@ struct dsi_panel {
 	struct dsi_video_engine_cfg video_config;
 	struct dsi_cmd_engine_cfg cmd_config;
 	enum dsi_op_mode panel_mode;
-	bool panel_mode_switch_enabled;
 
 	struct dsi_dfps_capabilities dfps_caps;
 	struct dsi_dyn_clk_caps dyn_clk_caps;
@@ -191,7 +186,6 @@ struct dsi_panel {
 
 	struct dsi_display_mode *cur_mode;
 	u32 num_timing_nodes;
-	u32 num_display_modes;
 
 	struct dsi_regulator_info power_info;
 	struct dsi_backlight_config bl_config;
@@ -216,8 +210,14 @@ struct dsi_panel {
 	enum dsi_dms_mode dms_mode;
 
 	bool sync_broadcast_en;
-	int power_mode;
-	enum dsi_panel_physical_type panel_type;
+#ifdef VENDOR_EDIT
+/* Gou shengjun@PSW.MM.Display.Service.Feature,2018/11/21
+ * For OnScreenFingerprint feature
+*/
+	bool is_hbm_enabled;
+	/* Fix aod flash problem */
+	bool need_power_on_backlight;
+#endif
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)
@@ -238,11 +238,6 @@ static inline void dsi_panel_acquire_panel_lock(struct dsi_panel *panel)
 static inline void dsi_panel_release_panel_lock(struct dsi_panel *panel)
 {
 	mutex_unlock(&panel->panel_lock);
-}
-
-static inline bool dsi_panel_is_type_oled(struct dsi_panel *panel)
-{
-	return (panel->panel_type == DSI_DISPLAY_PANEL_TYPE_OLED);
 }
 
 struct dsi_panel *dsi_panel_get(struct device *parent,
@@ -314,14 +309,6 @@ int dsi_panel_send_qsync_off_dcs(struct dsi_panel *panel,
 int dsi_panel_send_roi_dcs(struct dsi_panel *panel, int ctrl_idx,
 		struct dsi_rect *roi);
 
-int dsi_panel_pre_mode_switch_to_video(struct dsi_panel *panel);
-
-int dsi_panel_pre_mode_switch_to_cmd(struct dsi_panel *panel);
-
-int dsi_panel_mode_switch_to_cmd(struct dsi_panel *panel);
-
-int dsi_panel_mode_switch_to_vid(struct dsi_panel *panel);
-
 int dsi_panel_switch(struct dsi_panel *panel);
 
 int dsi_panel_post_switch(struct dsi_panel *panel);
@@ -337,5 +324,11 @@ struct dsi_panel *dsi_panel_ext_bridge_get(struct device *parent,
 int dsi_panel_parse_esd_reg_read_configs(struct dsi_panel *panel);
 
 void dsi_panel_ext_bridge_put(struct dsi_panel *panel);
-
+#ifdef VENDOR_EDIT
+/* Gou shengjun@PSW.MM.Display.LCD.Stability,2018/11/21
+ * Add for oppo display new structure
+*/
+int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
+			   enum dsi_cmd_set_type type);
+#endif
 #endif /* _DSI_PANEL_H_ */

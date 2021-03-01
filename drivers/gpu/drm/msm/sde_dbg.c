@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2009-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,7 +23,6 @@
 
 #include "sde_dbg.h"
 #include "sde/sde_hw_catalog.h"
-#include "msm_drv.h"
 
 #define SDE_DBG_BASE_MAX		10
 
@@ -3451,7 +3450,7 @@ static void _sde_dump_reg(const char *dump_name, u32 reg_dump_flag,
 
 		if (dump_mem && *dump_mem) {
 			dump_addr = *dump_mem;
-			dev_dbg(sde_dbg_base.dev,
+			dev_info(sde_dbg_base.dev,
 				"%s: start_addr:0x%pK len:0x%x reg_offset=0x%lx\n",
 				dump_name, dump_addr, len_padded,
 				(unsigned long)(addr - base_addr));
@@ -3564,19 +3563,14 @@ static void _sde_dump_reg_by_ranges(struct sde_dbg_reg_base *dbg,
 	char *addr;
 	size_t len;
 	struct sde_dbg_reg_range *range_node;
-	bool in_log = false;
 
 	if (!dbg || !(dbg->base || dbg->cb)) {
 		pr_err("dbg base is null!\n");
 		return;
 	}
 
-	in_log = reg_dump_flag & SDE_DBG_DUMP_IN_LOG;
-
-	if (in_log)
-		dev_info(sde_dbg_base.dev, "%s:========= %s DUMP=========\n",
-			__func__, dbg->name);
-
+	dev_info(sde_dbg_base.dev, "%s:=========%s DUMP=========\n", __func__,
+			dbg->name);
 	if (dbg->cb) {
 		dbg->cb(dbg->cb_ptr);
 	/* If there is a list to dump the registers by ranges, use the ranges */
@@ -3604,12 +3598,10 @@ static void _sde_dump_reg_by_ranges(struct sde_dbg_reg_base *dbg,
 		}
 	} else {
 		/* If there is no list to dump ranges, dump all registers */
-		if (in_log) {
-			dev_info(sde_dbg_base.dev,
+		dev_info(sde_dbg_base.dev,
 				"Ranges not found, will dump full registers\n");
-			dev_info(sde_dbg_base.dev, "base:0x%pK len:0x%zx\n",
-				dbg->base, dbg->max_offset);
-		}
+		dev_info(sde_dbg_base.dev, "base:0x%pK len:0x%zx\n", dbg->base,
+				dbg->max_offset);
 		addr = dbg->base;
 		len = dbg->max_offset;
 		_sde_dump_reg(dbg->name, reg_dump_flag, dbg->base, addr, len,
@@ -3731,10 +3723,9 @@ static void _sde_dbg_dump_sde_dbg_bus(struct sde_dbg_sde_debug_bus *bus)
 
 		if (*dump_mem) {
 			dump_addr = *dump_mem;
-			if (in_log)
-				dev_info(sde_dbg_base.dev,
-					"%s: start_addr:0x%pK len:0x%x\n",
-					__func__, dump_addr, list_size);
+			dev_info(sde_dbg_base.dev,
+				"%s: start_addr:0x%pK len:0x%x\n",
+				__func__, dump_addr, list_size);
 		} else {
 			in_mem = false;
 			pr_err("dump_mem: allocation fails\n");
@@ -3893,10 +3884,9 @@ static void _sde_dbg_dump_vbif_dbg_bus(struct sde_dbg_vbif_debug_bus *bus)
 
 		if (*dump_mem) {
 			dump_addr = *dump_mem;
-			if (in_log)
-				dev_info(sde_dbg_base.dev,
-					"%s: start_addr:0x%pK len:0x%x\n",
-					__func__, dump_addr, list_size);
+			dev_info(sde_dbg_base.dev,
+				"%s: start_addr:0x%pK len:0x%x\n",
+				__func__, dump_addr, list_size);
 		} else {
 			in_mem = false;
 			pr_err("dump_mem: allocation fails\n");
@@ -3999,16 +3989,13 @@ static void _sde_dump_array(struct sde_dbg_reg_base *blk_arr[],
 		}
 	}
 
-	if (sde_dbg_base.enable_reg_dump & SDE_DBG_DUMP_IN_MEM)
-		pr_info("=========Captured reg dump in memory=========\n");
-
 	if (dump_dbgbus_sde)
 		_sde_dbg_dump_sde_dbg_bus(&sde_dbg_base.dbgbus_sde);
 
 	if (dump_dbgbus_vbif_rt)
 		_sde_dbg_dump_vbif_dbg_bus(&sde_dbg_base.dbgbus_vbif_rt);
 
-	if (sde_dbg_base.dsi_dbg_bus)
+	if (sde_dbg_base.dsi_dbg_bus || dump_all)
 		dsi_ctrl_debug_dump(sde_dbg_base.dbgbus_dsi.entries,
 				    sde_dbg_base.dbgbus_dsi.size);
 
@@ -4166,7 +4153,7 @@ void sde_dbg_ctrl(const char *name, ...)
 	va_end(args);
 }
 
-#ifdef CONFIG_DEBUG_FS
+
 /*
  * sde_dbg_debugfs_open - debugfs open handler for evtlog dump
  * @inode: debugfs inode
@@ -4224,9 +4211,26 @@ static ssize_t sde_evtlog_dump_read(struct file *file, char __user *buff,
 	return len;
 }
 
+/**
+ * sde_evtlog_dump_write - debugfs write handler for evtlog dump
+ * @file: file handler
+ * @user_buf: user buffer content from debugfs
+ * @count: size of user buffer
+ * @ppos: position offset of user buffer
+ */
+static ssize_t sde_evtlog_dump_write(struct file *file,
+	const char __user *user_buf, size_t count, loff_t *ppos)
+{
+	_sde_dump_array(NULL, 0, sde_dbg_base.panic_on_err, "dump_debugfs",
+		true, true, true, false);
+
+	return count;
+}
+
 static const struct file_operations sde_evtlog_fops = {
 	.open = sde_dbg_debugfs_open,
 	.read = sde_evtlog_dump_read,
+	.write = sde_evtlog_dump_write,
 };
 
 /**
@@ -5047,37 +5051,14 @@ static const struct file_operations sde_reg_fops = {
 	.write = sde_dbg_reg_base_reg_write,
 };
 
-int sde_dbg_debugfs_register(struct device *dev)
+int sde_dbg_debugfs_register(struct dentry *debugfs_root)
 {
 	static struct sde_dbg_base *dbg = &sde_dbg_base;
 	struct sde_dbg_reg_base *blk_base;
 	char debug_name[80] = "";
-	struct dentry *debugfs_root = NULL;
-	struct platform_device *pdev = to_platform_device(dev);
-	struct drm_device *ddev = platform_get_drvdata(pdev);
-	struct msm_drm_private *priv = NULL;
 
-	if (!ddev) {
-		pr_err("Invalid drm device node\n");
+	if (!debugfs_root)
 		return -EINVAL;
-	}
-
-	priv = ddev->dev_private;
-	if (!priv) {
-		pr_err("Invalid msm drm private node\n");
-		return -EINVAL;
-	}
-
-	debugfs_root = debugfs_create_dir("debug",
-				ddev->primary->debugfs_root);
-	if (IS_ERR_OR_NULL(debugfs_root)) {
-		pr_err("debugfs_root create_dir fail, error %ld\n",
-			PTR_ERR(debugfs_root));
-		priv->debug_root = NULL;
-		return -EINVAL;
-	}
-
-	priv->debug_root = debugfs_root;
 
 	debugfs_create_file("dbg_ctrl", 0600, debugfs_root, NULL,
 			&sde_dbg_ctrl_fops);
@@ -5132,15 +5113,6 @@ int sde_dbg_debugfs_register(struct device *dev)
 	return 0;
 }
 
-#else
-
-int sde_dbg_debugfs_register(struct device *dev)
-{
-	return 0;
-}
-
-#endif
-
 static void _sde_dbg_debugfs_destroy(void)
 {
 }
@@ -5175,9 +5147,7 @@ void sde_dbg_init_dbg_buses(u32 hwversion)
 		dbg->dbgbus_dsi.entries = dsi_dbg_bus_sdm845;
 		dbg->dbgbus_dsi.size = ARRAY_SIZE(dsi_dbg_bus_sdm845);
 	} else if (IS_SM8150_TARGET(hwversion) || IS_SM6150_TARGET(hwversion) ||
-				IS_SDMMAGPIE_TARGET(hwversion) ||
-				IS_SDMTRINKET_TARGET(hwversion) ||
-				IS_ATOLL_TARGET(hwversion)) {
+				IS_SDMMAGPIE_TARGET(hwversion)) {
 		dbg->dbgbus_sde.entries = dbg_bus_sde_sm8150;
 		dbg->dbgbus_sde.cmn.entries_size =
 				ARRAY_SIZE(dbg_bus_sde_sm8150);

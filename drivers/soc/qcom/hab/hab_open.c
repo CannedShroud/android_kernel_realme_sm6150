@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -46,7 +46,6 @@ int hab_open_request_add(struct physical_channel *pchan,
 	struct hab_device *dev = pchan->habdev;
 	struct hab_open_request *request;
 	struct timeval tv;
-	int irqs_disabled = irqs_disabled();
 
 	if (sizebytes > HAB_HEADER_SIZE_MASK) {
 		pr_err("pchan %s request size too large %zd\n",
@@ -71,11 +70,10 @@ int hab_open_request_add(struct physical_channel *pchan,
 		tv.tv_usec/1000000;
 	hab_pchan_get(pchan);
 
-	hab_spin_lock(&dev->openlock, irqs_disabled);
+	spin_lock_bh(&dev->openlock);
 	list_add_tail(&node->node, &dev->openq_list);
 	dev->openq_cnt++;
-	hab_spin_unlock(&dev->openlock, irqs_disabled);
-
+	spin_unlock_bh(&dev->openlock);
 	return 0;
 }
 
@@ -194,7 +192,6 @@ int hab_open_receive_cancel(struct physical_channel *pchan,
 	struct hab_open_node *node, *tmp;
 	int bfound = 0;
 	struct timeval tv;
-	int irqs_disabled = irqs_disabled();
 
 	if (sizebytes > HAB_HEADER_SIZE_MASK) {
 		pr_err("pchan %s cancel size too large %zd\n",
@@ -205,7 +202,7 @@ int hab_open_receive_cancel(struct physical_channel *pchan,
 	if (physical_channel_read(pchan, &data, sizebytes) != sizebytes)
 		return -EIO;
 
-	hab_spin_lock(&dev->openlock, irqs_disabled);
+	spin_lock_bh(&dev->openlock);
 	list_for_each_entry_safe(node, tmp, &dev->openq_list, node) {
 		request = &node->request;
 		/* check if open request has been serviced or not */
@@ -224,7 +221,7 @@ int hab_open_receive_cancel(struct physical_channel *pchan,
 			break;
 		}
 	}
-	hab_spin_unlock(&dev->openlock, irqs_disabled);
+	spin_unlock_bh(&dev->openlock);
 
 	if (!bfound) {
 		pr_info("init waiting is in-flight. vcid %x sub %d open %d\n",
@@ -240,8 +237,6 @@ int hab_open_receive_cancel(struct physical_channel *pchan,
 		request->xdata.vchan_id = data.vchan_id;
 		request->xdata.sub_id   = data.sub_id;
 		request->xdata.open_id  = data.open_id;
-		request->xdata.ver_fe  = data.ver_fe;
-		request->xdata.ver_be  = data.ver_be;
 
 		do_gettimeofday(&tv);
 		node->age = tv.tv_sec + HAB_OPEN_REQ_EXPIRE_TIME_S +
@@ -249,10 +244,10 @@ int hab_open_receive_cancel(struct physical_channel *pchan,
 		/* put when this node is handled in open path */
 		hab_pchan_get(pchan);
 
-		hab_spin_lock(&dev->openlock, irqs_disabled);
+		spin_lock_bh(&dev->openlock);
 		list_add_tail(&node->node, &dev->openq_list);
 		dev->openq_cnt++;
-		hab_spin_unlock(&dev->openlock, irqs_disabled);
+		spin_unlock_bh(&dev->openlock);
 
 		wake_up_interruptible(&dev->openq);
 	}
