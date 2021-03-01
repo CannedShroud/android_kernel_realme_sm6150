@@ -65,7 +65,7 @@ KBUILD_CFLAGS += $(call cc-option,-mno-avx,)
 # Never want PIC in a 32-bit kernel, prevent breakage with GCC built
 # with nonstandard options
 # Android toolchains enable PIC, so explicitly disable it on 64-bit kernel too.
-KBUILD_CFLAGS += -fno-pic
+KBUILD_CFLAGS += $(call cc-option,-fcf-protection=none)
 
 ifeq ($(CONFIG_X86_32),y)
         BITS := 32

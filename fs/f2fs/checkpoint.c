@@ -917,14 +917,8 @@ free_fail_no_cp:
 	f2fs_put_page(cp1, 1);
 	f2fs_put_page(cp2, 1);
 fail_no_cp:
-<<<<<<< HEAD
 	kvfree(sbi->ckpt);
 	return -EINVAL;
-=======
-	kfree(sbi->ckpt);
-	return err;
->>>>>>> v4.14.147
-}
 
 static void __add_dirty_inode(struct inode *inode, enum inode_type type)
 {

@@ -828,7 +828,6 @@ void __noreturn do_exit(long code)
 		panic("Recursive fault!\n");
 #else
 		pr_alert("Fixing recursive fault but reboot is needed!\n");
-<<<<<<< HEAD
 #endif
 		/*
 		 * We can do this unlocked here. The futex code uses
@@ -840,9 +839,7 @@ void __noreturn do_exit(long code)
 		 * task into the wait for ever nirwana as well.
 		 */
 		tsk->flags |= PF_EXITPIDONE;
-=======
 		futex_exit_recursive(tsk);
->>>>>>> v4.14.158
 		set_current_state(TASK_UNINTERRUPTIBLE);
 		schedule();
 	}
