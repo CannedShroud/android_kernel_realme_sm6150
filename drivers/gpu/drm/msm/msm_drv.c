@@ -2118,7 +2118,9 @@ static int msm_pdev_remove(struct platform_device *pdev)
 static void msm_pdev_shutdown(struct platform_device *pdev)
 {
 	struct drm_device *ddev = platform_get_drvdata(pdev);
+	struct drm_device *drm = platform_get_drvdata(pdev); 
 	struct msm_drm_private *priv = NULL;
+	drm_atomic_helper_shutdown(drm);
 
 	if (!ddev) {
 		DRM_ERROR("invalid drm device node\n");
@@ -2134,7 +2136,6 @@ static void msm_pdev_shutdown(struct platform_device *pdev)
 	msm_lastclose(ddev);
 
 	/* set this after lastclose to allow kickoff from lastclose */
-	priv->shutdown_in_progress = true;
 }
 
 static const struct of_device_id dt_match[] = {
