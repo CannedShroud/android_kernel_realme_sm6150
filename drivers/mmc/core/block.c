@@ -54,7 +54,6 @@
 #include "block.h"
 #include "core.h"
 #include "card.h"
-#include "crypto.h"
 #include "host.h"
 #include "bus.h"
 #include "mmc_ops.h"
@@ -2130,8 +2129,6 @@ static void mmc_blk_data_prep(struct mmc_queue *mq, struct mmc_queue_req *mqrq,
 
 	memset(brq, 0, sizeof(struct mmc_blk_request));
 
-	mmc_crypto_prepare_req(mqrq);
-
 	brq->mrq.data = &brq->data;
 
 	brq->stop.opcode = MMC_STOP_TRANSMISSION;
@@ -2437,7 +2434,7 @@ static int mmc_blk_cmdq_issue_discard_rq(struct mmc_queue *mq,
 
 	if (!mmc_can_erase(card)) {
 		err = -EOPNOTSUPP;
-		blk_end_request(req, BLK_STS_NOTSUPP, blk_rq_bytes(req));
+		blk_end_request(req, err, blk_rq_bytes(req));
 		goto out;
 	}
 
@@ -2488,7 +2485,7 @@ static int mmc_blk_cmdq_issue_secdiscard_rq(struct mmc_queue *mq,
 
 	if (!(mmc_can_secure_erase_trim(card))) {
 		err = -EOPNOTSUPP;
-		blk_end_request(req, BLK_STS_NOTSUPP, blk_rq_bytes(req));
+		blk_end_request(req, err, blk_rq_bytes(req));
 		goto out;
 	}
 
@@ -2874,7 +2871,7 @@ static void mmc_blk_cmdq_reset_all(struct mmc_host *host, int err)
 			dcmd_mrq = &cmdq_req->mrq;
 			WARN_ON(!test_and_clear_bit(CMDQ_STATE_DCMD_ACTIVE,
 					&ctx_info->curr_state));
-			pr_debug("%s: cmd(%u), req_op(%u)\n", __func__,
+			pr_debug("%s: cmd(%u), req_op(%llu)\n", __func__,
 				 dcmd_mrq->cmd->opcode, req_op(dcmd_mrq->req));
 			if (!is_err_mrq_dcmd && !dcmd_mrq->cmd->error &&
 				(req_op(dcmd_mrq->req) == REQ_OP_SECURE_ERASE ||
@@ -3101,7 +3098,6 @@ void mmc_blk_cmdq_complete_rq(struct request *rq)
 	int err_resp = 0;
 	bool is_dcmd = false;
 	bool err_rwsem = false;
-	blk_status_t blk_err = BLK_STS_OK;
 
 	if (down_read_trylock(&ctx_info->err_rwsem)) {
 		err_rwsem = true;
@@ -3118,9 +3114,6 @@ void mmc_blk_cmdq_complete_rq(struct request *rq)
 		err = mrq->data->error;
 	if (cmdq_req->resp_err)
 		err_resp = cmdq_req->resp_err;
-
-	if (err)
-		blk_err = BLK_STS_IOERR;
 
 	if ((err || err_resp) && !cmdq_req->skip_err_handling) {
 		pr_err("%s: %s: txfr error(%d)/resp_err(%d)\n",
@@ -3150,7 +3143,7 @@ void mmc_blk_cmdq_complete_rq(struct request *rq)
 		mmc_cmdq_post_req(host, cmdq_req->tag, err);
 	if (cmdq_req->cmdq_req_flags & DCMD) {
 		clear_bit(CMDQ_STATE_DCMD_ACTIVE, &ctx_info->curr_state);
-		blk_end_request_all(rq, blk_err);
+		blk_end_request_all(rq, err);
 		goto out;
 	}
 	/*
@@ -3161,11 +3154,11 @@ void mmc_blk_cmdq_complete_rq(struct request *rq)
 	 */
 	if (err && cmdq_req->skip_err_handling) {
 		cmdq_req->skip_err_handling = false;
-		blk_end_request_all(rq, blk_err);
+		blk_end_request_all(rq, err);
 		goto out;
 	}
 
-	blk_end_request(rq, blk_err, cmdq_req->data.bytes_xfered);
+	blk_end_request(rq, err, cmdq_req->data.bytes_xfered);
 
 out:
 
@@ -3355,9 +3348,9 @@ static void mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *new_req)
 			int err;
 
 			err = mmc_blk_reset(md, card->host, type);
-			if (!err) {
+			if (!err)
 				break;
-			} else {
+			if (err == -ENODEV) {
 				mmc_blk_rw_cmd_abort(mq, card, old_req, mq_rq);
 				mmc_blk_rw_try_restart(mq, new_req, mqrq_cur);
 				return;
@@ -3532,7 +3525,7 @@ static int mmc_blk_cmdq_issue_drv_op(struct mmc_card *card,
 	if (ret) {
 		pr_err("%s: failed to halt on empty queue\n",
 						mmc_hostname(card->host));
-		blk_end_request_all(req, BLK_STS_IOERR);
+		blk_end_request_all(req, ret);
 		mmc_put_card(card);
 		return ret;
 	}
@@ -3646,8 +3639,7 @@ static int mmc_blk_cmdq_issue_rq(struct mmc_queue *mq, struct request *req)
 
 out:
 	if (req)
-		blk_end_request_all(req,
-			ret ? BLK_STS_IOERR : BLK_STS_OK);
+		blk_end_request_all(req, ret);
 	mmc_put_card(card);
 
 	return ret;
@@ -3802,7 +3794,7 @@ static struct mmc_blk_data *mmc_blk_alloc_req(struct mmc_card *card,
 	INIT_LIST_HEAD(&md->part);
 	md->usage = 1;
 
-	ret = mmc_init_queue(&md->queue, card, NULL, subname, area_type);
+	ret = mmc_init_queue(&md->queue, card, &md->lock, subname, area_type);
 	if (ret)
 		goto err_putdisk;
 
@@ -3971,6 +3963,7 @@ static void mmc_blk_remove_req(struct mmc_blk_data *md)
 		queue_flag_set(QUEUE_FLAG_BYPASS, md->queue.queue);
 		spin_unlock_irq(md->queue.queue->queue_lock);
 		blk_set_queue_dying(md->queue.queue);
+		mmc_cleanup_queue(&md->queue);
 
 		if (md->flags & MMC_BLK_CMD_QUEUE)
 			mmc_cmdq_clean(&md->queue, card);
@@ -3991,7 +3984,6 @@ static void mmc_blk_remove_req(struct mmc_blk_data *md)
 
 			del_gendisk(md->disk);
 		}
-		mmc_cleanup_queue(&md->queue);
 		mmc_blk_put(md);
 	}
 }
@@ -4251,8 +4243,11 @@ static int mmc_blk_probe(struct mmc_card *card)
 	/*
 	 * Check that the card supports the command class(es) we need.
 	 */
+#ifndef VENDOR_EDIT
+//yh@bsp, 2015/08/03, remove for can not initialize specific sdcard(CSD info mismatch card real capability)
 	if (!(card->csd.cmdclass & CCC_BLOCK_READ))
 		return -ENODEV;
+#endif
 
 	mmc_fixup_device(card, mmc_blk_fixups);
 
@@ -4304,6 +4299,19 @@ static int mmc_blk_probe(struct mmc_card *card)
 	return 0;
 }
 
+#ifdef VENDOR_EDIT
+//Chunyi.Mei@PSW.BSP.Storage.Sdcard, 2018-12-10, Add for SD Card device information
+char *capacity_string(struct mmc_card *card){
+	static char cap_str[10] = "unknown";
+	struct mmc_blk_data *md = (struct mmc_blk_data *)card->dev.driver_data;
+	if(md==NULL){
+		return 0;
+	}
+	string_get_size((u64)get_capacity(md->disk), 512, STRING_UNITS_2, cap_str, sizeof(cap_str));
+	return cap_str;
+}
+#endif
+
 static void mmc_blk_remove(struct mmc_card *card)
 {
 	struct mmc_blk_data *md = dev_get_drvdata(&card->dev);
@@ -4319,7 +4327,9 @@ static void mmc_blk_remove(struct mmc_card *card)
 	pm_runtime_put_noidle(&card->dev);
 	mmc_blk_remove_req(md);
 	dev_set_drvdata(&card->dev, NULL);
+
 	mmc_set_bus_resume_policy(card->host, 0);
+
 }
 
 static int _mmc_blk_suspend(struct mmc_card *card, bool wait)
