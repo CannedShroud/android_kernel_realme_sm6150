@@ -796,16 +796,15 @@ try_again:
 		 * Read the common registers. Note that we should try to
 		 * validate whether UHS would work or not.
 		 */
-		err = sdio_read_cccr(card, ocr);
-		if (err) {
-			mmc_sdio_resend_if_cond(host, card);
-			if (ocr & R4_18V_PRESENT) {
-				/* Retry init sequence, but without R4_18V_PRESENT. */
-				retries = 0;
-				goto try_again;
-			} else {
-				goto remove;
-			}
+	err = sdio_read_cccr(card, ocr);
+	if (err) {
+		mmc_sdio_resend_if_cond(host, card);
+		if (ocr & R4_18V_PRESENT) {
+			/* Retry init sequence, but without R4_18V_PRESENT. */
+			retries = 0;
+			goto try_again;
+		}
+		return err;
 		}
 #ifdef CONFIG_MMC_EMBEDDED_SDIO
 	}
@@ -851,6 +850,7 @@ try_again:
 		} else
 			card->dev.type = &sd_type;
 	}
+}
 
 	/*
 	 * If needed, disconnect card detection pull-up resistor.
