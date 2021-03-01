@@ -626,7 +626,10 @@ static int wil6210_suspend(struct device *dev, bool is_runtime)
 	int rc = 0;
 	struct pci_dev *pdev = to_pci_dev(dev);
 	struct wil6210_priv *wil = pci_get_drvdata(pdev);
-	bool keep_radio_on, active_ifaces;
+	struct net_device *ndev = wil_to_ndev(wil);
+	bool keep_radio_on = ndev->flags & IFF_UP &&
+			     wil->keep_radio_on_during_sleep;
+	bool active_ifaces;
 
 	wil_dbg_pm(wil, "suspend: %s\n", is_runtime ? "runtime" : "system");
 
@@ -641,6 +644,7 @@ static int wil6210_suspend(struct device *dev, bool is_runtime)
 
 	rc = wil_suspend(wil, is_runtime, keep_radio_on);
 	if (!rc) {
+		wil->suspend_stats.successful_suspends++;
 		/* In case radio stays on, platform device will control
 		 * PCIe master
 		 */
@@ -675,6 +679,12 @@ static int wil6210_resume(struct device *dev, bool is_runtime)
 	mutex_unlock(&wil->vif_mutex);
 	keep_radio_on = active_ifaces && wil->keep_radio_on_during_sleep;
 
+	struct net_device *ndev = wil_to_ndev(wil);
+	bool keep_radio_on = ndev->flags & IFF_UP &&
+			     wil->keep_radio_on_during_sleep;
+
+	wil_dbg_pm(wil, "resume: %s\n", is_runtime ? "runtime" : "system");
+
 	/* In case radio stays on, platform device will control
 	 * PCIe master
 	 */
@@ -684,6 +694,7 @@ static int wil6210_resume(struct device *dev, bool is_runtime)
 	rc = wil_resume(wil, is_runtime, keep_radio_on);
 	if (rc) {
 		wil_err(wil, "device failed to resume (%d)\n", rc);
+		wil->suspend_stats.failed_resumes++;
 		if (!keep_radio_on) {
 			pci_clear_master(pdev);
 			wil->suspend_stats.r_off.failed_resumes++;
