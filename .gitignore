@@ -125,3 +125,11 @@ all.config
 
 # fetched Android config fragments
 kernel/configs/android-*.cfg
+
+AnyKernel3/
+clang/
+gcc32/
+gcc64/
+logs/
+out/
+scripts/ufdt/
